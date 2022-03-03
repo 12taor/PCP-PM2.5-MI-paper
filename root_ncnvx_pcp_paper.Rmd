@@ -1,0 +1,426 @@
+---
+title: "Nonconvex Root PCP for paper"
+author: "Rachel Tao"
+date: "2/20/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# load libraries
+library(pcpr)
+library(PCPhelpers)
+library(Matrix)
+library(tidyverse)
+library(NMF)
+library(janitor)
+library(ggcorrplot)
+library(ggfortify)  
+library(gridExtra)
+library(knitr)
+library(patchwork)
+library(GGally)
+library(grDevices)
+library(gplots)
+library(foreach)
+library(doSNOW)
+library(tictoc)
+library(lubridate)
+library(splines)
+library(pals)
+
+# load prep_data function to read NYC data in
+source(here::here("law_experiments/nhanes_nyc_tests/eda-latest-nyc-data.R"))
+
+# choose color palette large enough for visuallizations needed later
+Color.list <- glasbey(28)
+
+# other theme settings
+knitr::opts_chunk$set(
+	fig.asp = 0.6,
+	fig.width = 6,
+	message = FALSE,
+	warning = FALSE,
+	out.width = "90%"
+)
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis")
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+```
+
+Load data
+```{r}
+# prep data
+start_date <- as.Date("2007-01-01") # set start date
+end_date <- as.Date("2015-12-31") # set end date
+nyc <- prep_data(years = c(start_date, end_date)) # list; different versions (scaled, not scaled, etc.)
+
+pm25_tot <- read_csv("./rachel_experiments/pm2.5_total_components_daily_nyc_avg.csv") %>% 
+  rename(
+    date = date_local,
+    pm25 = pm2.5_total
+  ) %>% 
+  select(date, pm25)
+
+nyc_raw <- cbind(nyc$M.dates, nyc$M) %>% 
+  as_tibble() %>% 
+  rename(date = 'nyc$M.dates') %>% 
+  left_join(pm25_tot, by = "date") %>% 
+  relocate(date, pm25)
+
+# write_csv(nyc_raw, "./rachel_experiments/figures/nyc_raw.csv")
+
+```
+
+Correlation Matrix - Figure S3
+```{r}
+# correlation matrix
+nyc$M %>%
+  rename(
+    Al = "aluminum",
+    "NH4" = "ammonium ion",
+    As = "arsenic",
+    Ba = "barium",
+    Br = "bromine",
+    Cd = "cadmium",
+    Ca = "calcium",
+    Cl = "chlorine",
+    Cr = "chromium",
+    Cu = "copper",
+    EC = "elemental carbon",
+    Fe = "iron",
+    Pb = "lead",
+    Mg = "magnesium",
+    Mn = "manganese",
+    Ni = "nickel",
+    OC = "organic carbon",
+    K = "potassium ion",
+    Se = "selenium",
+    Si = "silicon",
+    Na = "sodium",
+    S = "sulfur",
+    Ti = "titanium",
+    "NO3" = "total nitrate",
+    V = "vanadium",
+    Zn = "zinc"
+  ) %>% 
+  ggcorr(method = c("pairwise.complete.obs", "pearson"), limits = FALSE,
+       label = TRUE, label_size = 3, label_alpha = TRUE,
+       hjust = 1, size = 5, color = "grey50", layout.exp = 4)
+
+```
+
+
+Cross validation to select hyperparameters r, lambda, and mu
+```{hyperparameter selection r}
+#----------------------------#
+#### 1. TEST MATRIX ####
+#----------------------------#
+# corrupt data
+nyc$M_tilde <- corrupt_mat_randomly(nyc$M.scaled, 1, perc_b = .15) 
+# list inside a list contains $cor.mat and $cor.mask
+
+# R doesn't like multiplying NA values, so we'll impute them as 0
+# so they don't affect the calculation
+nyc$M_tilde$M_copy <- nyc$M.scaled
+nyc$M_tilde$M_copy[is.na(nyc$M_tilde$M_copy)] <- 0
+
+# Get the frobenius norm of the original (scaled) data matrix's test set now
+# so we can use it to calculate the relative error in the grid search later.
+# we can calculate this norm now because this will be a constant throughout the whole gridsearch,
+# i.e. it doesn't depend on the parameter settings, just the original data matrix and
+# choice of test set / corruption. therefore, computationally it makes sense to calculate
+# it once instead of each iteration of the gridsearch. 
+# we use the copy of the original (scaled) data matrix
+nyc$M_norm <- norm(nyc$M_tilde$cor.mask * nyc$M_tilde$M_copy, "F")
+
+#----------------------------#
+#### 2. SET UP GRIDSEARCH ####
+#----------------------------#
+# define the search space
+ranks <- 1:10
+lambdas <- c(0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, .5, 1, 2)
+mus <- c(0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, .5, 1, 2)
+# adjust grid as needed to find optimal values for rank, lambda, and mu
+
+grid <- expand.grid(r = ranks, lambda = lambdas, mu = mus) 
+# length(ranks)*length(lambdas)-many rows long
+
+# get default parameters so we have a default mu. 
+default <- get_pcp_defaults(nyc$M.scaled) # a list containing $lambda and $mu
+
+# set up parallel programming
+cores <- ceiling(parallel::detectCores() / 2) # optimal number of cores to use is half (rounded up) of the available ones on your computer.
+cl <- snow::makeCluster(cores)
+doSNOW::registerDoSNOW(cl)
+
+# set up progress bar for parallel (or sequential) programming
+pb <- txtProgressBar(min = 0, max = nrow(grid), width = 50, style = 3)
+progress <- function(p) setTxtProgressBar(pb, p)
+opts <- list(progress = progress)
+
+#-------------------------#
+#### 3. RUN GRIDSEARCH ####
+#-------------------------#
+tic()
+grid_search <- foreach(
+	i = iterators::icount(nrow(grid)), # i will go from 1 to nrow(grid)
+	.options.snow = opts, # the progress bar being sent to each core
+	.packages = c("pcpr", "PCPhelpers"), # the packages being sent to each core
+	.combine = rbind, # how we combine the last statement of the foreach loop
+	.inorder = FALSE # this speeds up the parallel programming
+) %dopar% {
+
+# run PCP for the current parameter setting, using the corrupted matrix (test set)
+pcp <- root_pcp_noncvx_nonnegL_na(nyc$M_tilde$cor.mat, mu = grid$mu[i], lambda = grid$lambda[i], r = grid$r[i])
+
+# calculate the relative error incurred by the parameters.
+# Here the metric being used for relative error is the frobenius norm
+# of only the test set that pcp came up with compared to the original test set's values
+# in the original data. Hence the element-wise multiplication by cor.mask (a matrix of 0's and 1's,
+# where 1's denote that element is in the test set).
+relerr <- norm(nyc$M_tilde$cor.mask * (nyc$M_tilde$M_copy - pcp$L), "F") / nyc$M_norm
+	
+# calculate other important metrics like the rank of the output L matrix,
+# the sparsity of the output S matrix, and the iterations the run took.
+lrank <- Matrix::rankMatrix(pcp$L, tol = 1e-04)
+ssparsity <- sparsity(pcp$S, tol = 1e-04)
+its <- pcp$final_iter
+
+# uncomment if running sequentially:
+#progress(i) # this line should be commented out when running in parallel
+
+# last statement that gets combined with rbind in this example:
+data.frame(
+		lambda = grid$lambda[i], 
+		r = grid$r[i], 
+		mu = grid$mu[i], 
+		rel_err = relerr,
+		L.rank = lrank,
+		S.sparsity = ssparsity,
+		iterations = its
+	)
+}
+toc()
+
+#-------------------#
+#### 4. CLEAN UP ####
+#-------------------#
+# end the parallel programming -- this is to make you computer happy
+snow::stopCluster(cl)
+
+# close the progress bar
+close(pb)
+
+#-----------------------#
+#### 5. VIEW RESULTS ####
+#-----------------------#
+print(grid_search %>% arrange(r, lambda, mu, rel_err))
+
+grid_search %>%
+  arrange(rel_err) %>%
+  view()
+
+#grid_search %>% arrange(rel_err) %>% write_csv( "./rachel_experiments/root_ncnvx_grid_search_l0.00008_m0.005.csv")
+
+```
+
+Run PCP using selected values for lambda, mu, and r
+```{r}
+pcp <- root_pcp_noncvx_nonnegL_na(nyc$M.scaled, lambda = 0.00008, mu = 0.005, 7, verbose = TRUE)
+
+L1 <- Matrix::rankMatrix(pcp$L, tol = 1e-04)
+S1 <- sparsity(pcp$S, tol = 1e-04)
+
+```
+
+Run NMF on low rank matrix
+```{r}
+# run NMF using different algorithms to find the one we want to use:
+res.multi.method <- nmf(
+  as.matrix(pcp$L), # L mat
+  rank = 7, # rank for L mat
+  method = list("brunet", "KL", "lee", "Frobenius", "offset", "nsNMF"), # algos we want to try
+  nrun = 100, # runs per algo
+  seed = 123456, # global seed(?)
+  .options = 'tvp4') # options to parallelize etc.
+  # .parameters = list("pe-nmf" = list("alpha" = 4, "beta" = 4))) # params for some algos that need params
+
+# we will exclude ls-nmf because we don't have an uncertainties matrix,
+# so it should default to a different, more standard nmf algorithm 
+# (looks like Frobenius based on look with just 5 runs per method)
+
+# plot residual error for each method
+plot(res.multi.method)
+# since offset performed the best, we will proceed with offset
+
+# run nmf of low rank matrix
+pcp_nmf <- nmf(pcp$L, rank = 7, method = "offset", nrun = 30, seed = 123456)
+
+# store loadings as tibble
+nmf_loadings <- coef(pcp_nmf) %>% 
+  as_tibble() %>% 
+  mutate(factor = row_number()) %>% 
+  pivot_longer(
+    cols = aluminum:zinc,
+    names_to = "Chemicals",
+    values_to = "Loadings")
+
+# write_csv(nmf_loadings, "./rachel_experiments/figures/pcp_nmf_loadings_offset.csv")
+
+# compute nmf scores to use for subsequent health analysis
+nmf_scores <- basis(pcp_nmf) %>% 
+  as.data.frame() %>% 
+  cbind(nyc$M.dates) %>% 
+  rename(date = "nyc$M.dates") %>% 
+  select(date, V1, V2, V3, V4, V5, V6, V7) %>% 
+  as_tibble()
+
+# write_csv(nmf_scores, "./rachel_experiments/figures/pcp_nmf_scores_offset.csv")
+
+```
+
+Figure 1: loadings figure
+```{r}
+pcp_nmf_loadings <- read_csv("./rachel_experiments/figures/pcp_nmf_loadings_offset.csv") %>% 
+  rename("chemicals" = "Chemicals", "loadings" = "Loadings") %>% 
+  mutate(
+    factor = as_factor(factor),
+    factor = fct_recode(factor,
+                        "Crustal Dust" = "1",
+                        "Salt" = "2",
+                        "Traffic" = "3",
+                        "Regional" = "4",
+                        "Cadmium" = "5",
+                        "Chromium" = "6",
+                        "Barium" = "7"
+                        ),
+    chemicals = as_factor(chemicals),
+    chemicals = fct_recode(chemicals,
+                           Al = "aluminum",
+                           "NH4" = "ammonium ion",
+                           As = "arsenic",
+                           Ba = "barium",
+                           Br = "bromine",
+                           Cd = "cadmium",
+                           Ca = "calcium",
+                           Cl = "chlorine",
+                           Cr = "chromium",
+                           Cu = "copper",
+                           EC = "elemental carbon",
+                           Fe = "iron",
+                           Pb = "lead",
+                           Mg = "magnesium",
+                           Mn = "manganese",
+                           Ni = "nickel",
+                           OC = "organic carbon",
+                           K = "potassium ion",
+                           Se = "selenium",
+                           Si = "silicon",
+                           Na = "sodium",
+                           S = "sulfur",
+                           Ti = "titanium",
+                           "NO3" = "total nitrate",
+                           V = "vanadium",
+                           Zn = "zinc"
+                           )
+  )
+
+# loadings figure
+pcp_nmf_loadings %>% 
+  ggplot(aes(x = chemicals, y = loadings)) + 
+  geom_col() +
+  geom_hline(yintercept = 0, size = 0.2) + 
+  facet_wrap(. ~ factor, ncol = 1, scales = "free") +
+  theme_bw() +
+  ylim(0, 0.45) +
+  xlab("") +
+  ylab("") +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.text.x = element_text(size = 12),
+    strip.text = element_text(size = 16)
+  )
+```
+
+
+Create Sparse Matrix
+```{r}
+# label each sparse value with its date using nyc dataseet
+sparse_df <- pcp$S %>% 
+  as_tibble() %>% 
+  cbind(nyc_raw$date) %>% 
+  rename(date = "nyc_raw$date") %>% 
+  relocate(date) %>% 
+  as_tibble()
+
+# write_csv(sparse_df, "./root_ncnvx_sparse_mat.csv")
+```
+
+Figure S11: sparse matrix heatmap
+```{r}
+# create date tibble (this makes the heatmap easier to read)
+dates <- seq(as.Date('2007-01-03'), as.Date('2015-12-31'), by = 3) %>% 
+  as_tibble() %>% 
+  rename(date = 'value')
+
+# bind sparse matrix to new date tibble
+all_dates <- left_join(dates, sparse_df, by = "date")
+
+# pivot longer
+sparse <- all_dates %>% 
+  pivot_longer(aluminum:zinc,
+               names_to = "element",
+               values_to = "score")
+
+# create sparse matrix heatmap - Figure S11
+sparse_heatmap_all <- 
+  sparse %>% 
+  mutate(
+    element = fct_recode(element,
+    Al = "aluminum",
+    "NH4" = "ammonium ion",
+    As = "arsenic",
+    Ba = "barium",
+    Br = "bromine",
+    Cd = "cadmium",
+    Ca = "calcium",
+    Cl = "chlorine",
+    Cr = "chromium",
+    Cu = "copper",
+    EC = "elemental carbon",
+    Fe = "iron",
+    Pb = "lead",
+    Mg = "magnesium",
+    Mn = "manganese",
+    Ni = "nickel",
+    OC = "organic carbon",
+    K = "potassium ion",
+    Se = "selenium",
+    Si = "silicon",
+    Na = "sodium",
+    S = "sulfur",
+    Ti = "titanium",
+    "NO3" = "total nitrate",
+    V = "vanadium",
+    Zn = "zinc"
+  )) %>% 
+  ggplot(aes(date, element, fill = score)) +
+  geom_tile() +
+  xlab("") +
+  ylab("") +
+  scale_x_date(date_breaks = "years", date_labels = format("%b-%Y")) +
+  scale_fill_gradient(low = "lightgrey", high = "black", na.value = "white") +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 16),
+    axis.text.x = element_text(angle = 315)
+  )
+
+```
+

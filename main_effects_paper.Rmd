@@ -1,0 +1,402 @@
+---
+title: "main effects paper"
+author: "Rachel Tao"
+date: "2/21/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggmap)
+library(ggcorrplot)
+library(gplots)
+library(GGally)
+library(knitr)
+library(patchwork)
+library(psych)
+library(factoextra)
+library(fst)
+library(splines)
+library(rnoaa)
+library(mgcv)
+library(MuMIn)
+
+knitr::opts_chunk$set(
+	fig.asp = 0.6,
+	fig.width = 6,
+	out.width = "90%"
+)
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis")
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+Load data
+```{r}
+# read in pcp/nmf scores
+MI_sources <- read_csv("./data/MI_pcp_nmf.csv")
+
+# get number of years to use for df for date
+yr_num <- length(unique(year(MI_sources$date)))
+
+# add variables for temp and rh lags and set data types
+MI_sources <- MI_sources %>% 
+    mutate(
+    temp_lag1 = lag(temp, 1),
+    temp_lag2 = lag(temp, 2),
+    temp_lag3 = lag(temp, 3),
+    temp_3day = (temp_lag1 + temp_lag2 + temp_lag3)/3,
+    rh_lag1 = lag(rh, 1),
+    rh_lag2 = lag(rh, 2),
+    rh_lag3 = lag(rh, 3),
+    rh_3day = (rh_lag1 + rh_lag2 + rh_lag3)/3,
+    DayofWeek = as_factor(DayofWeek),
+    date = as.numeric(date))
+
+# create quasipoisson function
+hacked.quasipoisson <- function() {
+  MI_model <- quasipoisson(link = "log")
+  MI_model$aic <- poisson(link = "log")$aic
+  MI_model
+}
+
+# check data frame
+summary(MI_sources)
+
+# remove missing values
+MI_sources %>% na.omit %>% nrow()
+
+```
+
+Run quasipoisson model
+```{r}
+# all sources linear
+MI_model <- gam(MI_events ~                
+                source_1 +               
+                source_2 +               
+                source_3 +                
+                source_4 +                 
+                source_5 +                 
+                source_6 +   
+                source_7 +
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model)
+
+
+QAIC(update(MI_model, family = hacked.quasipoisson), chat = 1.3175) # use chat from summary above
+# 6837.946
+
+
+```
+
+View model results - create Table S1 and Figure 2
+```{r}
+# compute IQR to get IQR increase
+IQR <- MI_sources %>%
+  pivot_longer(source_1:source_7,
+               names_to = "term",
+               values_to = "score") %>% 
+  group_by(term) %>% 
+  summarize(iqr = IQR(score, na.rm = TRUE))
+  
+# compute rate ratios, percent change, and relabel sources
+# used for Table S1
+results_iqr <- broom::tidy(MI_model, parametric = TRUE) %>% 
+  inner_join(IQR) %>% 
+  mutate(rr = round(exp(iqr*estimate), 6),
+         rr_lci = round(exp(iqr*(estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp(iqr*(estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data",
+          term = plyr::mapvalues(term,
+            from = c("source_1", 
+                     "source_2", 
+                     "source_3", 
+                     "source_4", 
+                     "source_5", 
+                     "source_6", 
+                     "source_7"),
+            to = c("Crustal Dust", 
+                   "Salt", 
+                   "Traffic", 
+                   "Regional", 
+                   "Cadmium", 
+                   "Chromium", 
+                   "Barium"))
+          )
+
+#write.csv(results_iqr, "./experimental_results/results_iqr.csv")
+
+# Create forest plot - Figure 2
+ForestPlot_full <- ggplot(data = results_iqr, 
+  aes(
+      x = term,  
+      y = pct_change,      
+      ymin = pct_lci,     
+      ymax = pct_uci)) +  
+  geom_pointrange() +   
+  geom_errorbar() +      
+  geom_hline(aes(yintercept = 0), lty = 2) +
+  xlab("") +    
+  ylab(expression("Percent change in MI admission rate (95% CI)")) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(
+      face = "bold", color = "black", size = 16, angle = 315),
+    axis.title = element_text(face = "bold", size = 16),
+    legend.title = element_blank(),
+    legend.text = element_text(face = "bold", size = 24),
+    legend.position = "right",
+    axis.text.y = element_text(
+      face = "bold", color = "black", size = 18)
+    )
+
+ForestPlot_full # produces the plot in the plots panel
+
+```
+
+
+For each source, we modeled non-linearly with all other sources linear to assess for nonlinearity. We show below sources where there was evidence of nonlinearity.
+
+Source 2 nonlinear - Figure S9
+```{r}
+# run model
+nonlinear_2 <- gam(MI_events ~       
+                source_1 +
+                s(source_2, fx = FALSE, bs = 'cr') +  
+                source_3 +
+                source_4 +
+                source_5 +
+                source_6 +
+                source_7 +
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(nonlinear_2)
+
+QAIC(update(nonlinear_2, family = hacked.quasipoisson), chat = 1.3221)
+# 6825.012
+
+# Use predict to create estimates and the corresponding confidence intervals.
+pred <- predict(nonlinear_2, newdata = MI_sources, se.fit = TRUE, type = "terms")
+
+data_fit <- as.data.frame(pred$fit) %>%
+  clean_names() %>%
+  select(s_source_2) %>%
+  rename(beta = s_source_2)
+
+data_se <- as.data.frame(pred$se) %>%
+  clean_names() %>%
+  select(s_source_2) %>%
+  rename(se = s_source_2)
+
+data_full <- cbind(data_fit, data_se, MI_sources) %>%
+  arrange(source_2) %>%
+  mutate(lci = exp(beta - 1.96 * se),
+         uci = exp(beta + 1.96 * se),
+         rate_ratio = exp(beta)) %>%
+  mutate(model = name,
+         disease = disease)
+
+# Plot - Figure S9
+data_full %>%
+  ggplot(aes(x = source_2)) +
+  theme_classic(base_line_size = 0.6, base_size = 20) +
+  geom_path(aes(y = rate_ratio), size = 1.2) +
+  geom_ribbon(aes(ymin = lci, ymax = uci), alpha = 0.3) +
+  geom_hline(yintercept = 1, linetype = 2, size = 0.5) +
+  geom_rug() +
+  xlab(expression("Salt score", size = 20)) +
+  ylab("Rate Ratio") +
+  coord_trans(y = "log2") +
+  theme(plot.title  = element_text(vjust = -5, hjust = 0.035)) +
+  scale_y_continuous(limits = c(0.67, 1.40), breaks = seq(.7, 1.40, by = 0.1)) +
+  theme(plot.title  = element_text(vjust = -5, hjust = 0.035))
+
+```
+
+Source 5 nonlinear - Figure S8
+```{r}
+# run model
+nonlinear_5 <- gam(MI_events ~    
+                source_1 +
+                source_2 +
+                source_3 +
+                source_4 +
+                s(source_5, fx = FALSE, bs = 'cr') +  
+                source_6 +
+                source_7 +
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(nonlinear_5)
+
+QAIC(update(nonlinear_5, family = hacked.quasipoisson), chat = 1.3234)
+# 6819.38
+
+# Use predict to create estimates and the corresponding confidence intervals.
+pred <- predict(nonlinear_5, newdata = MI_sources, se.fit = TRUE, type = "terms")
+data_fit <- as.data.frame(pred$fit) %>%
+  clean_names() %>%
+  select(s_source_5) %>%
+  rename(beta = s_source_5)
+
+data_se <- as.data.frame(pred$se) %>%
+  clean_names() %>%
+  select(s_source_5) %>%
+  rename(se = s_source_5)
+
+data_full <- cbind(data_fit, data_se, MI_sources) %>%
+  arrange(source_5) %>%
+  mutate(lci = exp(beta - 1.96 * se),
+         uci = exp(beta + 1.96 * se),
+         rate_ratio = exp(beta))
+
+# Plot - Figure S8
+data_full %>%
+  ggplot(aes(x = source_5)) +
+  theme_classic(base_line_size = 0.6, base_size = 20) +
+  geom_path(aes(y = rate_ratio), size = 1.2) +
+  geom_ribbon(aes(ymin = lci, ymax = uci), alpha = 0.3) +
+  geom_hline(yintercept = 1, linetype = 2, size = 0.5) +
+  geom_rug() +
+  xlab(expression("Cadmium score", size = 20)) +
+  ylab("Rate Ratio") +
+  coord_trans(y = "log2") +
+  theme(plot.title  = element_text(vjust = -5, hjust = 0.035)) +
+  scale_y_continuous(limits = c(0.67, 1.40), breaks = seq(.7, 1.40, by = 0.1)) +
+  theme(plot.title  = element_text(vjust = -5, hjust = 0.035))
+
+```
+
+Sensitivity analysis with removed outliers:
+create dataset with outliers 3SD or higher removed 
+```{r}
+replaceOutlier <- function(x, cutoff = 3) {
+  x[abs(x) > cutoff*sd(x, na.rm = T)] <- NA_real_
+  x
+}
+
+MI_sources_outliers <- MI_sources %>%
+  mutate(
+    source_1 = replaceOutlier(source_1),
+    source_2 = replaceOutlier(source_2),
+    source_3 = replaceOutlier(source_3),
+    source_4 = replaceOutlier(source_4),
+    source_5 = replaceOutlier(source_5),
+    source_6 = replaceOutlier(source_6),
+    source_7 = replaceOutlier(source_7))
+
+```
+
+Run model with outliers removed - Figure S10
+```{r}
+linear_out <- gam(MI_events ~                
+                source_1 +  
+                source_2 +
+                source_3 +
+                source_4 +
+                source_5 +
+                source_6 +
+                source_7 +
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources_outliers,
+                maxit = 10000)
+
+summary(linear_out)
+
+QAIC(update(linear_out, family = hacked.quasipoisson), chat = 1.3586)
+
+
+IQR <- MI_sources %>%
+  pivot_longer(source_1:source_7,
+               names_to = "term",
+               values_to = "score") %>% 
+  group_by(term) %>% 
+  summarize(iqr = IQR(score, na.rm = TRUE))
+  
+results_iqr_out <- broom::tidy(linear_out, parametric = TRUE) %>% 
+  inner_join(IQR) %>% 
+  mutate(rr = round(exp(iqr*estimate), 6),
+         rr_lci = round(exp(iqr*(estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp(iqr*(estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "outliers excluded",
+         term = plyr::mapvalues(term,
+           from = c("source_1", 
+                    "source_2", 
+                    "source_3", 
+                    "source_4", 
+                    "source_5", 
+                    "source_6", 
+                    "source_7"),
+           to = c("Crustal", 
+                  "Salt", 
+                  "Traffic", 
+                  "Regional", 
+                  "Cadmium", 
+                  "Chromium", 
+                  "Barium")))
+
+# create forest plot - Figure S10
+ForestPlot_outliers <- ggplot(data = results_iqr_out, 
+  aes(x = term,  
+      y = pct_change,      
+      ymin = pct_lci,     
+      ymax = pct_uci)) +  
+      geom_pointrange() +   
+      geom_errorbar() +      
+    theme_classic() +
+    geom_hline(aes(yintercept = 0), lty = 2) +
+    xlab("") +    
+    ylab(expression("Percent change in MI admission rate (95% CI)")) +
+    theme(
+    axis.text.x = element_text(
+      face = "bold", color = "black", size = 16, angle = 315),
+    axis.title = element_text(face = "bold", size = 16),
+    legend.title = element_blank(),
+    legend.text = element_text(face = "bold", size = 24),
+    legend.position = "right",
+    axis.text.y = element_text(
+      face = "bold", color = "black", size = 18)
+    )
+
+ForestPlot_outliers # produces the plot in the plots panel
+```
+

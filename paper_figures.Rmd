@@ -1,0 +1,454 @@
+---
+title: "paper figures"
+author: "Rachel Tao"
+date: "2/22/2022"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggmap)
+library(ggcorrplot)
+library(gplots)
+library(GGally)
+library(knitr)
+library(patchwork)
+library(psych)
+library(factoextra)
+library(fst)
+library(splines)
+library(rnoaa)
+library(mgcv)
+library(MuMIn)
+
+knitr::opts_chunk$set(
+	fig.asp = 0.6,
+	fig.width = 6,
+	out.width = "90%"
+)
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis")
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+```
+
+Prep data
+```{r include=FALSE}
+# load pcp/nmf scores
+pcp_nmf_scores <- read_csv("./data/pcp_nmf_scores_offset.csv")
+
+# load MI data
+MI <- read_fst("./data/z_NYC_daily_mi.fst") %>% 
+  as_tibble() %>% 
+  select(CaseDate, countMI.AdmitDate) %>% 
+  # choose admit date instead of estimated time of event
+  # to retain admissions with an admit date but missing hour of admission
+  rename(
+    date = CaseDate,
+    MI_events = countMI.AdmitDate
+  ) %>% 
+  mutate(
+    date = as.Date(date)
+  ) %>% 
+  filter(date > as.Date("2006-12-31"))
+
+# load weather data
+weather_to_2015 <- read_csv("./data/nyc_dailyweathervar.csv") %>% 
+  as_tibble() %>% 
+  mutate(
+    day = round(day, digits = 0),
+    day = ymd(day)) %>% 
+  rename(date = day) %>% 
+  filter(date > as.Date("2006-12-31")) 
+
+# take averages to get daily values for rh and temp
+weather_to_2015 <- weather_to_2015 %>% 
+  group_by(date) %>% 
+  summarize(rh = mean(rh), temp = mean(temp))
+
+# join datasets together
+MI_sources <- MI %>% 
+  left_join(weather_to_2015, by = "date") %>% 
+  left_join(pcp_nmf_scores, by = "date") %>% 
+  mutate(population = 8175133,
+         DayofWeek = as.character(wday(date, label = TRUE))
+         ) %>% 
+  rename(
+    source_1 = V1,
+    source_2 = V2,
+    source_3 = V3,
+    source_4 = V4,
+    source_5 = V5,
+    source_6 = V6,
+    source_7 = V7
+  )
+
+# relevel days of the week
+MI_sources$DayofWeek <- factor(MI_sources$DayofWeek,
+                        level = c("Sun", 
+                                  "Mon", 
+                                  "Tue", 
+                                  "Wed", 
+                                  "Thu", 
+                                  "Fri", 
+                                  "Sat"))
+# export dataset
+# write_csv(MI_sources, "./data/MI_pcp_nmf.csv")
+
+summary(MI_sources)
+```
+
+Table 1: summary statistics
+```{r}
+constituents <- read_csv("./data/nyc_raw.csv")
+
+ng <- function(x, na.rm = TRUE) (x*1000)
+
+summary <- left_join(MI_sources, constituents, by = "date") %>% 
+  select(MI_events, rh, temp, pm25:zinc) %>% 
+  mutate_at(5:30, ng, na.rm = TRUE)
+
+table_1 <- summary %>% 
+  pivot_longer(MI_events:zinc,
+               names_to = "category",
+               values_to = "value") %>% 
+  group_by(category) %>% 
+  summarize(
+    min = min(value, na.rm = TRUE),
+    Q1 = quantile(value, probs = 0.25, na.rm = TRUE),
+    median = median(value, na.rm = TRUE),
+    Q3 = quantile(value, probs = 0.75, na.rm = TRUE),
+    max = max(value, na.rm = TRUE),
+    mean = mean(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE)
+  ) %>% 
+  mutate(
+    category = as_factor(category),
+    category = fct_recode(category,
+                           "Aluminum (Al)" = "aluminum",
+                           "Ammonium (NH4)" = "ammonium ion",
+                           "Arsenic (As)" = "arsenic",
+                           "Barium (Ba)" = "barium",
+                           "Bromine (Br)" = "bromine",
+                           "Cadmium (Cd)" = "cadmium",
+                           "Calcium (Ca)" = "calcium",
+                           "Chlorine (Cl)" = "chlorine",
+                           "Chromium (Cr)" = "chromium",
+                           "Copper (Cu)" = "copper",
+                           "Elemental Carbon (EC)" = "elemental carbon",
+                           "Iron (Fe)" = "iron",
+                           "Lead (Pb)" = "lead",
+                           "Magnesium (Mg)" = "magnesium",
+                           "Manganese (Mn)" = "manganese",
+                           "Nickel (Ni)" = "nickel",
+                           "Organic Carbon (OC)" = "organic carbon",
+                           "Potassium (K)" = "potassium ion",
+                           "Selenium (Se)" = "selenium",
+                           "Silicon (Si)" = "silicon",
+                           "Sodium (Na)" = "sodium",
+                           "Sulfur (S)" = "sulfur",
+                           "Titanium (Ti)" = "titanium",
+                           "Nitrate (NO3)" = "total nitrate",
+                           "Vanadium (V)" = "vanadium",
+                           "Zinc (Zn)" = "zinc",
+                           "Total PM_[2.5]" = "pm25",
+                           "Relative Humidity (%)" = "rh",
+                           "Temperature (°C)" = "temp",
+                           "MI Count" = "MI_events"
+                           )) %>% 
+      rename("Minimum" = "min",
+             "25th%ile" = "Q1",
+             "Median" = "median",
+             "75th%ile" = "Q3",
+             "Maximum" = "max",
+             "Mean" = "mean")
+
+#write_csv(table_1, "./pcp_paper/table_1.csv")
+```
+
+Figure 1 is in root_ncnvx_pcp_paper
+Figure 2 is in main_effects_paper
+Table S1 is in main_effects_paper
+
+Seasonal trends:
+Table S2
+Figures S2, S6
+```{r include=FALSE}
+MI_sources_long <- MI_sources %>% 
+  pivot_longer(source_1:source_7,
+               names_to = "source",
+               names_prefix = "source_",
+               values_to = "score") %>% 
+  group_by(source) %>% 
+  mutate(
+    source = as_factor(source),
+    source = fct_recode(source,
+      "Crustal Dust" = "1", 
+      "Salt" = "2",
+      "Traffic" = "3",
+      "Regional" = "4",
+      "Cadmium" = "5",
+      "Chromium" = "6",
+      "Barium" = "7"
+      ))
+
+yr_num <- length(unique(year(MI_sources$date)))
+
+# plot  - Figure S6
+seasonal_trends <- ggplot(MI_sources_long, aes(date, score)) +
+  geom_smooth(method = lm, formula = y ~ ns(x, df= 4*yr_num), color = "black") +
+  facet_wrap(~source, scales = "free", ncol = 1) + 
+  xlab("") +
+  ylab("Factor Score") +
+  theme_classic() +
+  theme(
+    axis.title.y = element_text(size = 18),
+    strip.text = element_text(size = 14),
+    axis.text.x = element_text(size = 13),
+    axis.text.y = element_text(size = 11)
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year")
+
+# plot MI trends - Figure S2
+mi <- ggplot(MI_sources, aes(date, MI_events)) + 
+  geom_smooth(method = lm, formula = y ~ ns(x, df= 4*yr_num), color = "black") +
+  ylab("Number of MI Admissions") +
+  xlab("") +
+  theme_classic() +
+  theme(
+    axis.text = element_text(size = 14),
+    axis.title = element_text(size = 20)
+  ) +
+  scale_x_date(date_labels = "%Y", date_breaks = "1 year")
+
+# extract season from dates
+season <- MI_sources %>% mutate(season = metR::season(date))
+
+# anova summary - repeat for each source
+# Table S2
+aov(source_1 ~ season, season) %>% summary()
+
+# anova means - repeat for each source
+# Table S2
+aov_object <- aov(source_1 ~ season, season)
+
+model.tables(aov_object, type = "means")
+
+```
+
+
+Day of week patterns:
+Table S3, Figure S5
+```{r include=FALSE}
+# mean source scores for each day of the week
+week <- MI_sources %>% 
+  pivot_longer(source_1:source_7,
+               names_to = "source",
+               values_to = "score") %>% 
+  group_by(source, DayofWeek) %>% 
+  summarize(mean_score = mean(score, na.rm = TRUE)) %>% 
+  mutate(
+    source = as_factor(source),
+    source = fct_recode(source,
+      "Crustal Dust" = "source_1",   # *
+      "Salt" = "source_2",           #
+      "Traffic" = "source_3",        # *
+      "Regional" = "source_4",       # *
+      "Cadmium" = "source_5",        #
+      "Chromium" = "source_6",       #
+      "Barium" = "source_7"          #
+      )
+  )
+
+# plot weekday trends - Figure S5
+ggplot(week, aes(DayofWeek, mean_score)) +
+  geom_bar(stat = "identity") +
+  xlab("") +
+  facet_wrap(~source, scales = "free", ncol =1) +
+  ylab("Mean Factor Score") +
+  ylim(0, 3) +
+  theme_classic() +
+  theme(
+    axis.title.y = element_text(size = 18),
+    axis.text.x.bottom = element_text(size = 13, color = "black"),
+    strip.text = element_text(size = 14),
+    axis.text.y.left = element_text(size = 12)
+  )
+
+# tag weekend vs. weekdays
+week_day <- MI_sources %>% 
+  mutate(week_end = if_else(DayofWeek %in% 
+                              c('Mon', 'Tue', 'Wed', 'Thu', 'Fri'), 
+                            'weekday', 'weekend'),
+         week_end = as_factor(week_end))
+
+# t-test for weekday vs. weekend means - Table S3
+# repeat for each source
+t.test(week_day$source_1~week_day$week_end)
+
+# find mean and SD for weekend/weekday
+# repeat for each source
+week_day %>% group_by(week_end) %>% summarize(m = mean(source_1, na.rm = TRUE),
+                                              sd = sd(source_1, na.rm = TRUE))
+
+```
+
+Figure S1: Map of monitor locations
+```{r map, echo=FALSE, message=FALSE}
+monitor_locations <- 
+  read_csv("./data/monitor_sites.csv") %>% 
+  mutate(site_number = as.character(site_number))
+
+library(tigris)
+library(sp)
+library(rgdal)
+library(sf)
+
+lookup_code("New York", "New York")
+lookup_code("New York", "Kings")
+lookup_code("New York", "Queens")
+lookup_code("New York", "Bronx")
+lookup_code("New York", "Richmond")
+
+nyc_counties = st_read("data/cb_2018_us_county_500k/cb_2018_us_county_500k.shp") %>%
+  filter(STATEFP == "36",
+         COUNTYFP %in% c('061','047','081','005','085')
+         )
+
+st_crs(monitor_locations)
+st_crs(nyc_counties) # different
+
+monitor_locations = merge(nyc_counties, monitor_locations)
+
+st_crs(nyc_counties)
+
+names(nyc_counties)
+
+crs
+
+nyc_counties <- subset(counties, county %in% c('061','047','081','005','085'))
+
+summary(nyc_tracts)
+
+wgs84 <- CRS("+proj=longlat +datum=WGS84")
+
+monitor_locations <- spTransform(monitor_locations, CRS("+proj=longlat +datum=WGS84"))
+
+map <- leaflet(monitor_locations) %>% 
+  addProviderTiles("CartoDB.PositronNoLabels") %>% 
+  addPolygons(fill = FALSE) %>% 
+  addCircleMarkers(lng = ~longitude, lat = ~latitude, label = ~site_number)
+
+map
+
+```
+
+Figure S2 is above
+Figure S3 is in root_ncnvx_pcp_paper
+
+Figure S4: Pie chart
+```{r}
+# take the matrix norm of each source
+pcp_nmf_source_1 <- pcp_nmf_scores %>% 
+  select(V1) %>% 
+  as.matrix() %>% 
+  norm()
+
+pcp_nmf_source_2 <- pcp_nmf_scores %>% 
+  select(V2) %>% 
+  as.matrix() %>% 
+  norm()
+
+pcp_nmf_source_3 <- pcp_nmf_scores %>% 
+  select(V3) %>% 
+  as.matrix() %>% 
+  norm()
+
+pcp_nmf_source_4 <- pcp_nmf_scores %>% 
+  select(V4) %>% 
+  as.matrix() %>% 
+  norm()
+
+pcp_nmf_source_5 <- pcp_nmf_scores %>% 
+  select(V5) %>% 
+  as.matrix() %>% 
+  norm()
+
+pcp_nmf_source_6 <- pcp_nmf_scores %>% 
+  select(V6) %>% 
+  as.matrix() %>% 
+  norm()
+
+pcp_nmf_source_7 <- pcp_nmf_scores %>% 
+  select(V7) %>% 
+  as.matrix() %>% 
+  norm()
+
+# add norms together to get total
+tot = pcp_nmf_source_1 + pcp_nmf_source_2 + pcp_nmf_source_3 + pcp_nmf_source_4 + pcp_nmf_source_5 + pcp_nmf_source_6 + pcp_nmf_source_7
+
+# calculate percentages
+vals <- c((pcp_nmf_source_3/tot)*100, (pcp_nmf_source_4/tot)*100, (pcp_nmf_source_1/tot)*100, (pcp_nmf_source_7/tot)*100, (pcp_nmf_source_2/tot)*100, (pcp_nmf_source_5/tot)*100, (pcp_nmf_source_6/tot)*100)
+
+#create vector of source names
+val_names <- c("Traffic", "Regional", "Crustal", "Salt", "Cadmium", "Chromium", "Barium")
+
+# label percentages vector with source names
+names(vals) <- val_names
+
+# make into tibble
+values <- cbind(vals, val_names) %>% 
+  as_tibble() %>% 
+  mutate(vals = as.double(vals),
+         vals = round(vals, digits = 0),
+         val_names = fct_reorder(val_names, vals)
+         )
+
+# pie chart - Figure S4
+values %>% 
+  as_tibble() %>% 
+  mutate(vals = as.double(vals)) %>% 
+  ggplot(aes(x = "", y = vals, fill = val_names)) +
+    geom_bar(stat = "identity", width = 1) +
+    coord_polar("y", start = 0) +
+    theme_void() +
+    theme(
+      legend.title = element_blank(),
+      legend.key.size = unit(1, 'cm'),
+      legend.text = element_text(size = 14)
+      ) +
+    geom_text(aes(label = vals),
+              position = position_stack(vjust = 0.5),
+              size = 6)
+
+```
+
+Figure S5 and Figure S6 are above
+
+Figure S7: Source correlation matrix
+```{r}
+# correlation matrix
+pcp_nmf_scores %>% 
+  rename(
+    Crustal = V1,
+    Salt = V2,
+    Traffic = V3,
+    Regional = V4,
+    Cadmium = V5,
+    Chromium = V6,
+    Barium = V7
+  ) %>% 
+ggcorr(method = c("pairwise.complete.obs", "pearson"), limits = FALSE,
+       label = TRUE, label_size = 5,
+       hjust = 1, size = 6, color = "grey50", layout.exp = 4)
+
+```
+
+Figures S8, S9, and S10 are in main_effects_paper
+Figure S11 is in root_ncnvx_pcp_paper
