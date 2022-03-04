@@ -1,0 +1,5 @@
+state_code,county_code,site_number,latitude,longitude,local_site_name,address,state_name,county_name,city_name
+36,5,110,40.816,-73.902,IS 52,IS 52    681 KELLY ST,New York,Bronx,New York
+36,61,62,40.720622,-74.003674,CANAL STREET,"POST OFFICE,350 CANAL STREET",New York,New York,New York
+36,61,134,40.71436,-73.99518,DIVISION STREET,"40 DIVISION STREET, PS 124",New York,New York,New York
+36,81,124,40.73614,-73.82153,QUEENS COLLEGE 2,Queens College   65-30 Kissena Blvd  Parking Lot#6,New York,Queens,New York

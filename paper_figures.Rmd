@@ -43,7 +43,7 @@ Prep data
 # load pcp/nmf scores
 pcp_nmf_scores <- read_csv("./data/pcp_nmf_scores_offset.csv")
 
-# load MI data
+# load MI data (this is not actually in the repo)
 MI <- read_fst("./data/z_NYC_daily_mi.fst") %>% 
   as_tibble() %>% 
   select(CaseDate, countMI.AdmitDate) %>% 
@@ -169,7 +169,8 @@ table_1 <- summary %>%
              "Maximum" = "max",
              "Mean" = "mean")
 
-#write_csv(table_1, "./pcp_paper/table_1.csv")
+#write_csv(table_1, "./table_1.csv")
+
 ```
 
 Figure 1 is in root_ncnvx_pcp_paper
@@ -309,6 +310,7 @@ library(tigris)
 library(sp)
 library(rgdal)
 library(sf)
+library(leaflet)
 
 lookup_code("New York", "New York")
 lookup_code("New York", "Kings")
@@ -330,19 +332,12 @@ st_crs(nyc_counties)
 
 names(nyc_counties)
 
-crs
-
-nyc_counties <- subset(counties, county %in% c('061','047','081','005','085'))
-
-summary(nyc_tracts)
-
 wgs84 <- CRS("+proj=longlat +datum=WGS84")
 
-monitor_locations <- spTransform(monitor_locations, CRS("+proj=longlat +datum=WGS84"))
+monitor_locations <- st_transform(monitor_locations, CRS("+proj=longlat +datum=WGS84"))
 
 map <- leaflet(monitor_locations) %>% 
   addProviderTiles("CartoDB.PositronNoLabels") %>% 
-  addPolygons(fill = FALSE) %>% 
   addCircleMarkers(lng = ~longitude, lat = ~latitude, label = ~site_number)
 
 map

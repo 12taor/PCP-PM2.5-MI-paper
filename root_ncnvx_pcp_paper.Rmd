@@ -29,7 +29,7 @@ library(splines)
 library(pals)
 
 # load prep_data function to read NYC data in
-source(here::here("law_experiments/nhanes_nyc_tests/eda-latest-nyc-data.R"))
+source(here::here("eda-latest-nyc-data.R"))
 
 # choose color palette large enough for visuallizations needed later
 Color.list <- glasbey(28)
@@ -60,7 +60,7 @@ start_date <- as.Date("2007-01-01") # set start date
 end_date <- as.Date("2015-12-31") # set end date
 nyc <- prep_data(years = c(start_date, end_date)) # list; different versions (scaled, not scaled, etc.)
 
-pm25_tot <- read_csv("./rachel_experiments/pm2.5_total_components_daily_nyc_avg.csv") %>% 
+pm25_tot <- read_csv("./data/pm2.5_total_components_daily_nyc_avg.csv") %>% 
   rename(
     date = date_local,
     pm25 = pm2.5_total
@@ -73,7 +73,7 @@ nyc_raw <- cbind(nyc$M.dates, nyc$M) %>%
   left_join(pm25_tot, by = "date") %>% 
   relocate(date, pm25)
 
-# write_csv(nyc_raw, "./rachel_experiments/figures/nyc_raw.csv")
+# write_csv(nyc_raw, "./data/nyc_raw.csv")
 
 ```
 
@@ -195,7 +195,7 @@ its <- pcp$final_iter
 # uncomment if running sequentially:
 #progress(i) # this line should be commented out when running in parallel
 
-# last statement that gets combined with rbind in this example:
+# last statement that gets combined with rbind (this step takes 1+ hrs):
 data.frame(
 		lambda = grid$lambda[i], 
 		r = grid$r[i], 
@@ -232,6 +232,7 @@ grid_search %>%
 
 Run PCP using selected values for lambda, mu, and r
 ```{r}
+# this takes a few seconds:
 pcp <- root_pcp_noncvx_nonnegL_na(nyc$M.scaled, lambda = 0.00008, mu = 0.005, 7, verbose = TRUE)
 
 L1 <- Matrix::rankMatrix(pcp$L, tol = 1e-04)
@@ -241,15 +242,14 @@ S1 <- sparsity(pcp$S, tol = 1e-04)
 
 Run NMF on low rank matrix
 ```{r}
-# run NMF using different algorithms to find the one we want to use:
+# run NMF using different algorithms to find the one we want to use (takes a few min):
 res.multi.method <- nmf(
   as.matrix(pcp$L), # L mat
   rank = 7, # rank for L mat
   method = list("brunet", "KL", "lee", "Frobenius", "offset", "nsNMF"), # algos we want to try
   nrun = 100, # runs per algo
-  seed = 123456, # global seed(?)
+  seed = 123456, # global seed
   .options = 'tvp4') # options to parallelize etc.
-  # .parameters = list("pe-nmf" = list("alpha" = 4, "beta" = 4))) # params for some algos that need params
 
 # we will exclude ls-nmf because we don't have an uncertainties matrix,
 # so it should default to a different, more standard nmf algorithm 
@@ -271,7 +271,7 @@ nmf_loadings <- coef(pcp_nmf) %>%
     names_to = "Chemicals",
     values_to = "Loadings")
 
-# write_csv(nmf_loadings, "./rachel_experiments/figures/pcp_nmf_loadings_offset.csv")
+# write_csv(nmf_loadings, "./data/pcp_nmf_loadings_offset.csv")
 
 # compute nmf scores to use for subsequent health analysis
 nmf_scores <- basis(pcp_nmf) %>% 
@@ -281,13 +281,13 @@ nmf_scores <- basis(pcp_nmf) %>%
   select(date, V1, V2, V3, V4, V5, V6, V7) %>% 
   as_tibble()
 
-# write_csv(nmf_scores, "./rachel_experiments/figures/pcp_nmf_scores_offset.csv")
+# write_csv(nmf_scores, "./data/pcp_nmf_scores_offset.csv")
 
 ```
 
 Figure 1: loadings figure
 ```{r}
-pcp_nmf_loadings <- read_csv("./rachel_experiments/figures/pcp_nmf_loadings_offset.csv") %>% 
+pcp_nmf_loadings <- read_csv("./data/pcp_nmf_loadings_offset.csv") %>% 
   rename("chemicals" = "Chemicals", "loadings" = "Loadings") %>% 
   mutate(
     factor = as_factor(factor),
@@ -346,6 +346,7 @@ pcp_nmf_loadings %>%
     axis.text.x = element_text(size = 12),
     strip.text = element_text(size = 16)
   )
+
 ```
 
 
@@ -359,7 +360,7 @@ sparse_df <- pcp$S %>%
   relocate(date) %>% 
   as_tibble()
 
-# write_csv(sparse_df, "./root_ncnvx_sparse_mat.csv")
+# write_csv(sparse_df, "./data/root_ncnvx_sparse_mat.csv")
 ```
 
 Figure S11: sparse matrix heatmap
@@ -421,6 +422,8 @@ sparse_heatmap_all <-
     axis.text = element_text(size = 16),
     axis.text.x = element_text(angle = 315)
   )
+
+sparse_heatmap_all
 
 ```
 
