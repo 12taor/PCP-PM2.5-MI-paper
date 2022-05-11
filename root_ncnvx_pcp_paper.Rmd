@@ -340,11 +340,12 @@ pcp_nmf_loadings %>%
   theme_bw() +
   ylim(0, 0.45) +
   xlab("") +
-  ylab("") +
+  ylab("PCP-NMF Loadings") +
   theme(
     axis.text.y = element_text(size = 10),
     axis.text.x = element_text(size = 12),
-    strip.text = element_text(size = 16)
+    strip.text = element_text(size = 16),
+    axis.title.y = element_text(size = 16)
   )
 
 ```
