@@ -3,15 +3,28 @@ title: "Nonconvex Root PCP for paper"
 author: "Rachel Tao"
 date: "2/20/2022"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
+
+
+
+```{r}
+# install pcpr
+install.packages("/Users/yn2295/Library/Mobile Documents/com~apple~CloudDocs/Columbia Univ./Science/Dr.Marianthi-Anna/Postdoc_research/PCP/PCPr", repos = NULL, type = "source")
+
+install.packages("/Users/yn2295/Library/Mobile Documents/com~apple~CloudDocs/Columbia Univ./Science/Dr.Marianthi-Anna/Postdoc_research/PCP/PCPhelpers", repos = NULL, type = "source")
+```
+
+## 1. Load packages & set working environment
 
 ```{r setup, include=FALSE}
 # load libraries
-library(pcpr)
-library(PCPhelpers)
+library(pcpr) 
+library(PCPhelpers) 
 library(Matrix)
 library(tidyverse)
-library(NMF)
+library(NMF) # this biobase package which needs special downloading.See https://rdrr.io/bioc/Biobase/
 library(janitor)
 library(ggcorrplot)
 library(ggfortify)  
@@ -20,7 +33,7 @@ library(knitr)
 library(patchwork)
 library(GGally)
 library(grDevices)
-library(gplots)
+library(gplots) 
 library(foreach)
 library(doSNOW)
 library(tictoc)
@@ -53,8 +66,12 @@ scale_fill_discrete = scale_fill_viridis_d
 
 ```
 
-Load data
+## 2. Load data
+
+PM2.5 components data and total PM2.5 mass concentrations. 
+
 ```{r}
+
 # prep data
 start_date <- as.Date("2007-01-01") # set start date
 end_date <- as.Date("2015-12-31") # set end date
@@ -77,7 +94,14 @@ nyc_raw <- cbind(nyc$M.dates, nyc$M) %>%
 
 ```
 
-Correlation Matrix - Figure S3
+## 3. Correlation Matrix - Figure S3
+
+Correlation between PM2.5 components
+
+Yanelli:
+
+Line 136: maybe changed to label_alpha = FALSE because the labels are difficult to read when they are transparent 
+
 ```{r}
 # correlation matrix
 nyc$M %>%
@@ -116,19 +140,30 @@ nyc$M %>%
 ```
 
 
-Cross validation to select hyperparameters r, lambda, and mu
+## 4. Cross validation to select hyperparameters r, lambda, and mu
+
+
+154: Maybe add a note on what you mean by corrupting (e.g. replacing 15% of observations with NAs, this 15% of observations becomes the test set).
+line 204-207: Should we add to the manuscript a very general summary of the cross validations process? I also don't think we mention in the manuscript the metrics we are using to identify the "optimal values" (aka relative error of the Frobenius norm, sparsity, etc.).
+158: Should we mention in the manuscript that we use scaled data for the tuning?
+line 174: you estimate the default tuning parameters but then don't use them for anything else, right? maybe add a note next to the code that we are actually not using those values for anything 
+164: But multiplying a number by 0 does affect the calculation.. maybe I'm missing something
+266: I'm curious about how did you decide on the final values of the parameters. I know this is a bit of a subjective process and just so I know how to approach this in a future analysis
+
 ```{hyperparameter selection r}
 #----------------------------#
 #### 1. TEST MATRIX ####
 #----------------------------#
-# corrupt data
-nyc$M_tilde <- corrupt_mat_randomly(nyc$M.scaled, 1, perc_b = .15) 
-# list inside a list contains $cor.mat and $cor.mask
 
-# R doesn't like multiplying NA values, so we'll impute them as 0
+# corrupt data
+# Generates a list that inside contains 2 list: $cor.mat (corrupted matrix) and $cor.mask (1=corrupted values, 0=non-corrupted values)
+nyc$M_tilde <- corrupt_mat_randomly(nyc$M.scaled, 1, perc_b = .15) 
+
+
+# R doesn't like multiplying NA values, so we'll impute NA in the scaled original data as 0
 # so they don't affect the calculation
-nyc$M_tilde$M_copy <- nyc$M.scaled
-nyc$M_tilde$M_copy[is.na(nyc$M_tilde$M_copy)] <- 0
+nyc$M_tilde$M_copy <- nyc$M.scaled # make a copy of the scaled data
+nyc$M_tilde$M_copy[is.na(nyc$M_tilde$M_copy)] <- 0 # substitute na's with zero
 
 # Get the frobenius norm of the original (scaled) data matrix's test set now
 # so we can use it to calculate the relative error in the grid search later.
@@ -177,6 +212,7 @@ grid_search <- foreach(
 ) %dopar% {
 
 # run PCP for the current parameter setting, using the corrupted matrix (test set)
+# PCP will also estimate the values for the corrupted observations
 pcp <- root_pcp_noncvx_nonnegL_na(nyc$M_tilde$cor.mat, mu = grid$mu[i], lambda = grid$lambda[i], r = grid$r[i])
 
 # calculate the relative error incurred by the parameters.
@@ -230,7 +266,12 @@ grid_search %>%
 
 ```
 
-Run PCP using selected values for lambda, mu, and r
+## 5. Run PCP using selected values for lambda, mu, and r
+
+277: It is a bit unclear hoow did we end up with these values for the parameters
+278: how did you determine the tol value? 
+279-280: i think it would be really helpful to add comments on what are we doing in these lines of code
+
 ```{r}
 # this takes a few seconds:
 pcp <- root_pcp_noncvx_nonnegL_na(nyc$M.scaled, lambda = 0.00008, mu = 0.005, 7, verbose = TRUE)
@@ -240,8 +281,14 @@ S1 <- sparsity(pcp$S, tol = 1e-04)
 
 ```
 
-Run NMF on low rank matrix
+## 6. Run NMF on low rank matrix
+
+Helpful sources for NMF: https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-11-367
+
+287-330: the comments through out this code chunk are so helpful :) 
+
 ```{r}
+
 # run NMF using different algorithms to find the one we want to use (takes a few min):
 res.multi.method <- nmf(
   as.matrix(pcp$L), # L mat
@@ -249,7 +296,7 @@ res.multi.method <- nmf(
   method = list("brunet", "KL", "lee", "Frobenius", "offset", "nsNMF"), # algos we want to try
   nrun = 100, # runs per algo
   seed = 123456, # global seed
-  .options = 'tvp4') # options to parallelize etc.
+  .options = 'tvp4') # options to parallelize etc. (t=track, v=verbose, p=parallel, number to specify cores #)
 
 # we will exclude ls-nmf because we don't have an uncertainties matrix,
 # so it should default to a different, more standard nmf algorithm 
@@ -285,8 +332,10 @@ nmf_scores <- basis(pcp_nmf) %>%
 
 ```
 
-Figure 1: loadings figure
+## 7. Figure 1: loadings figure
+
 ```{r}
+
 pcp_nmf_loadings <- read_csv("./data/pcp_nmf_loadings_offset.csv") %>% 
   rename("chemicals" = "Chemicals", "loadings" = "Loadings") %>% 
   mutate(
@@ -351,7 +400,7 @@ pcp_nmf_loadings %>%
 ```
 
 
-Create Sparse Matrix
+## 8. Create Sparse Matrix
 ```{r}
 # label each sparse value with its date using nyc dataseet
 sparse_df <- pcp$S %>% 
@@ -364,8 +413,12 @@ sparse_df <- pcp$S %>%
 # write_csv(sparse_df, "./data/root_ncnvx_sparse_mat.csv")
 ```
 
-Figure S11: sparse matrix heatmap
+
+## 9. Figure S11: sparse matrix heatmap
+
+428: Here we are getting rid off of a couple of observations (from 1108 to 1095). Are those not important? should we mention this in the manuscript figure legend? 
 ```{r}
+
 # create date tibble (this makes the heatmap easier to read)
 dates <- seq(as.Date('2007-01-03'), as.Date('2015-12-31'), by = 3) %>% 
   as_tibble() %>% 

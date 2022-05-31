@@ -3,6 +3,8 @@ title: "main effects paper"
 author: "Rachel Tao"
 date: "2/21/2022"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
 
 ```{r setup, include=FALSE}
@@ -37,9 +39,11 @@ scale_colour_discrete = scale_colour_viridis_d
 scale_fill_discrete = scale_fill_viridis_d
 ```
 
-Load data
+## 1. Load data
+
 ```{r}
 # read in pcp/nmf scores
+
 MI_sources <- read_csv("./data/MI_pcp_nmf.csv")
 
 # get number of years to use for df for date
@@ -74,7 +78,9 @@ MI_sources %>% na.omit %>% nrow()
 
 ```
 
-Run quasipoisson model
+## 2. Run quasi poisson model
+
+106: no sure what is happening here. Adding a comment would be supper helpful
 ```{r}
 # all sources linear
 MI_model <- gam(MI_events ~                
@@ -103,8 +109,10 @@ QAIC(update(MI_model, family = hacked.quasipoisson), chat = 1.3175) # use chat f
 
 ```
 
-View model results - create Table S1 and Figure 2
+## 3. View model results - create Table S1 and Figure 2
+
 ```{r}
+
 # compute IQR to get IQR increase
 IQR <- MI_sources %>%
   pivot_longer(source_1:source_7,
@@ -171,6 +179,9 @@ ForestPlot_full # produces the plot in the plots panel
 
 ```
 
+## 4. Nonlinearities
+
+Line 231: This line gives an error. I think this may be extra code from copy/pasting because it doesn't seem to fit with the data or to be needed in the subsequent steps. 
 
 For each source, we modeled non-linearly with all other sources linear to assess for nonlinearity. We show below sources where there was evidence of nonlinearity.
 
@@ -237,7 +248,11 @@ data_full %>%
 
 ```
 
-Source 5 nonlinear - Figure S8
+## 5. Source 5 nonlinear - Figure S8
+
+Line 280-295: Maybe change the object names so the objects from the code chunk above are not overwriting or cause errors by getting mix-up with the above objects
+Line 189-312: Was there a reason not to have a model including both of the nonlinear sources with a spline?
+
 ```{r}
 # run model
 nonlinear_5 <- gam(MI_events ~    
@@ -264,6 +279,7 @@ QAIC(update(nonlinear_5, family = hacked.quasipoisson), chat = 1.3234)
 
 # Use predict to create estimates and the corresponding confidence intervals.
 pred <- predict(nonlinear_5, newdata = MI_sources, se.fit = TRUE, type = "terms")
+
 data_fit <- as.data.frame(pred$fit) %>%
   clean_names() %>%
   select(s_source_5) %>%
@@ -297,6 +313,8 @@ data_full %>%
 
 ```
 
+## 6. Sensitivity analysis: outliers
+
 Sensitivity analysis with removed outliers:
 create dataset with outliers 3SD or higher removed 
 ```{r}
@@ -317,7 +335,12 @@ MI_sources_outliers <- MI_sources %>%
 
 ```
 
+
 Run model with outliers removed - Figure S10
+
+365: Note that you are calculating the IQR of the data that includes outlier rather than MI_sources_outlier
+368-373: if you are using the IQR from the whole data then this code is redundant because you already estimated the IQR previously and have the IQR object in the environment
+
 ```{r}
 linear_out <- gam(MI_events ~                
                 source_1 +  

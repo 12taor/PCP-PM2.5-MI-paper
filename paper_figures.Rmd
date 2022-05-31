@@ -3,7 +3,11 @@ title: "paper figures"
 author: "Rachel Tao"
 date: "2/22/2022"
 output: html_document
+editor_options: 
+  chunk_output_type: console
 ---
+
+
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(lubridate)
@@ -38,7 +42,10 @@ scale_fill_discrete = scale_fill_viridis_d
 
 ```
 
-Prep data
+## 1. Prep data
+
+line 86: what year is this population from and why every year gets the same value?
+
 ```{r include=FALSE}
 # load pcp/nmf scores
 pcp_nmf_scores <- read_csv("./data/pcp_nmf_scores_offset.csv")
@@ -67,7 +74,7 @@ weather_to_2015 <- read_csv("./data/nyc_dailyweathervar.csv") %>%
   rename(date = day) %>% 
   filter(date > as.Date("2006-12-31")) 
 
-# take averages to get daily values for rh and temp
+# take averages (of hourly measurements) to get daily values for rh and temp
 weather_to_2015 <- weather_to_2015 %>% 
   group_by(date) %>% 
   summarize(rh = mean(rh), temp = mean(temp))
@@ -104,8 +111,13 @@ MI_sources$DayofWeek <- factor(MI_sources$DayofWeek,
 summary(MI_sources)
 ```
 
-Table 1: summary statistics
+## 2. Table 1: summary statistics
+
+119-184: I think it would be really helpful to anotate so that is easier for people to follow up
+
+127: why did you multiply all components by 1000
 ```{r}
+
 constituents <- read_csv("./data/nyc_raw.csv")
 
 ng <- function(x, na.rm = TRUE) (x*1000)
@@ -173,6 +185,8 @@ table_1 <- summary %>%
 
 ```
 
+## 3. Seasonal trends Figures
+
 Figure 1 is in root_ncnvx_pcp_paper
 Figure 2 is in main_effects_paper
 Table S1 is in main_effects_paper
@@ -180,7 +194,11 @@ Table S1 is in main_effects_paper
 Seasonal trends:
 Table S2
 Figures S2, S6
+
+238: Just curious, is the 4 df per year for the seasons?
+238: I think the figure legend in the supplements should include that this is a smooth line fit with 36 df. 
 ```{r include=FALSE}
+
 MI_sources_long <- MI_sources %>% 
   pivot_longer(source_1:source_7,
                names_to = "source",
@@ -243,10 +261,12 @@ model.tables(aov_object, type = "means")
 
 ```
 
+## 4. Weekly patterns
 
 Day of week patterns:
 Table S3, Figure S5
 ```{r include=FALSE}
+
 # mean source scores for each day of the week
 week <- MI_sources %>% 
   pivot_longer(source_1:source_7,
@@ -300,6 +320,9 @@ week_day %>% group_by(week_end) %>% summarize(m = mean(source_1, na.rm = TRUE),
 
 ```
 
+
+## 5. Maps
+
 Figure S1: Map of monitor locations
 ```{r map, echo=FALSE, message=FALSE}
 monitor_locations <- 
@@ -344,16 +367,21 @@ map
 
 ```
 
+## 6. Source contribution to total variance 
+
 Figure S2 is above
 Figure S3 is in root_ncnvx_pcp_paper
 
 Figure S4: Pie chart
+
+380-452: This is nothing to do with the code, but not fully understand why are we using the norm L1 (sum of absolute values in the vector), to estimate variance
 ```{r}
+
 # take the matrix norm of each source
 pcp_nmf_source_1 <- pcp_nmf_scores %>% 
   select(V1) %>% 
   as.matrix() %>% 
-  norm()
+ norm()
 
 pcp_nmf_source_2 <- pcp_nmf_scores %>% 
   select(V2) %>% 
@@ -424,9 +452,10 @@ values %>%
 
 ```
 
+## 7.Correlation
 Figure S5 and Figure S6 are above
 
-Figure S7: Source correlation matrix
+Figure S7: Source (scores) correlation matrix
 ```{r}
 # correlation matrix
 pcp_nmf_scores %>% 
