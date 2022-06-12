@@ -141,11 +141,8 @@ nyc$M %>%
 ## 4. Cross validation to select hyperparameters r, lambda, and mu
 
 
-154: Maybe add a note on what you mean by corrupting (e.g. replacing 15% of observations with NAs, this 15% of observations becomes the test set).
 line 204-207: Should we add to the manuscript a very general summary of the cross validations process? I also don't think we mention in the manuscript the metrics we are using to identify the "optimal values" (aka relative error of the Frobenius norm, sparsity, etc.).
 158: Should we mention in the manuscript that we use scaled data for the tuning?
-line 174: you estimate the default tuning parameters but then don't use them for anything else, right? maybe add a note next to the code that we are actually not using those values for anything 
-164: But multiplying a number by 0 does affect the calculation.. maybe I'm missing something
 266: I'm curious about how did you decide on the final values of the parameters. I know this is a bit of a subjective process and just so I know how to approach this in a future analysis
 
 ```{hyperparameter selection r}
@@ -154,12 +151,16 @@ line 174: you estimate the default tuning parameters but then don't use them for
 #----------------------------#
 
 # corrupt data
-# Generates a list that inside contains 2 list: $cor.mat (corrupted matrix) and $cor.mask (1=corrupted values, 0=non-corrupted values)
+# here, we replace a random 15% of the observations with missing values to create a 
+# training set of the remaining 85% of the observations. The 15% that were 
+# corrupted (received NA in the training set) will become the test set.
+# This code generates a list that inside contains 2 lists: $cor.mat (corrupted matrix) 
+# and $cor.mask (1=corrupted values, 0=non-corrupted values)
 nyc$M_tilde <- corrupt_mat_randomly(nyc$M.scaled, 1, perc_b = .15) 
 
 
 # R doesn't like multiplying NA values, so we'll impute NA in the scaled original data as 0
-# so they don't affect the calculation
+# so they don't affect the calculation of the Frobenius norm
 nyc$M_tilde$M_copy <- nyc$M.scaled # make a copy of the scaled data
 nyc$M_tilde$M_copy[is.na(nyc$M_tilde$M_copy)] <- 0 # substitute na's with zero
 
@@ -172,6 +173,10 @@ nyc$M_tilde$M_copy[is.na(nyc$M_tilde$M_copy)] <- 0 # substitute na's with zero
 # we use the copy of the original (scaled) data matrix
 nyc$M_norm <- norm(nyc$M_tilde$cor.mask * nyc$M_tilde$M_copy, "F")
 
+# Now that we have set up the training/testing set, we need to do a gridsearch to find
+# optimal values for our hyperparameters (rank, lambda, mu).
+# To do this, we will repeat steps 2-5 with a different range of values until
+# we find the optimal combination of values, based on relative error.
 #----------------------------#
 #### 2. SET UP GRIDSEARCH ####
 #----------------------------#
@@ -179,13 +184,16 @@ nyc$M_norm <- norm(nyc$M_tilde$cor.mask * nyc$M_tilde$M_copy, "F")
 ranks <- 1:10
 lambdas <- c(0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, .5, 1, 2)
 mus <- c(0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, .5, 1, 2)
-# adjust grid as needed to find optimal values for rank, lambda, and mu
+# To find the optimal values, we adjusted the grid as needed after viewing the
+# results until we found the optimal values for rank, lambda, and mu
 
 grid <- expand.grid(r = ranks, lambda = lambdas, mu = mus) 
 # length(ranks)*length(lambdas)-many rows long
 
 # get default parameters so we have a default mu. 
 default <- get_pcp_defaults(nyc$M.scaled) # a list containing $lambda and $mu
+# these are the theoretically optimal values for lambda and mu that would have 
+# been used in other applications of PCP. These are only used for comparison here.
 
 # set up parallel programming
 cores <- ceiling(parallel::detectCores() / 2) # optimal number of cores to use is half (rounded up) of the available ones on your computer.
