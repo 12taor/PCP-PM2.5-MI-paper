@@ -8,17 +8,15 @@ editor_options:
 ---
 
 
-
-```{r}
-# install pcpr
-install.packages("/Users/yn2295/Library/Mobile Documents/com~apple~CloudDocs/Columbia Univ./Science/Dr.Marianthi-Anna/Postdoc_research/PCP/PCPr", repos = NULL, type = "source")
-
-install.packages("/Users/yn2295/Library/Mobile Documents/com~apple~CloudDocs/Columbia Univ./Science/Dr.Marianthi-Anna/Postdoc_research/PCP/PCPhelpers", repos = NULL, type = "source")
-```
-
 ## 1. Load packages & set working environment
 
 ```{r setup, include=FALSE}
+# install pcpr from https://github.com/Columbia-PRIME/pcpr
+install.packages("insert your path here", repos = NULL, type = "source")
+
+# install PCPHelpers from https://github.com/Columbia-PRIME/PCPhelpers
+install.packages("insert your path here", repos = NULL, type = "source")
+
 # load libraries
 library(pcpr) 
 library(PCPhelpers) 
