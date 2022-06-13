@@ -23,6 +23,7 @@ library(splines)
 library(rnoaa)
 library(mgcv)
 library(MuMIn)
+library(janitor)
 
 knitr::opts_chunk$set(
 	fig.asp = 0.6,
@@ -44,13 +45,13 @@ scale_fill_discrete = scale_fill_viridis_d
 ```{r}
 # read in pcp/nmf scores
 
-MI_sources <- read_csv("./data/MI_pcp_nmf.csv")
+MI_srcs <- read_csv("./data/MI_pcp_nmf.csv") %>% mutate(date = as.Date(date))
 
 # get number of years to use for df for date
-yr_num <- length(unique(year(MI_sources$date)))
+yr_num <- length(unique(year(MI_srcs$date)))
 
 # add variables for temp and rh lags and set data types
-MI_sources <- MI_sources %>% 
+MI_sources <- MI_srcs %>% 
     mutate(
     temp_lag1 = lag(temp, 1),
     temp_lag2 = lag(temp, 2),
@@ -80,9 +81,8 @@ MI_sources %>% na.omit %>% nrow()
 
 ## 2. Run quasi poisson model
 
-106: no sure what is happening here. Adding a comment would be supper helpful
 ```{r}
-# all sources linear
+# run the model with all sources modeled linearly
 MI_model <- gam(MI_events ~                
                 source_1 +               
                 source_2 +               
@@ -100,9 +100,10 @@ MI_model <- gam(MI_events ~
                 family = "quasipoisson",   
                 data = MI_sources)
 
+# view model summary
 summary(MI_model)
 
-
+# calculate QAIC for the model above
 QAIC(update(MI_model, family = hacked.quasipoisson), chat = 1.3175) # use chat from summary above
 # 6837.946
 
@@ -181,8 +182,6 @@ ForestPlot_full # produces the plot in the plots panel
 
 ## 4. Nonlinearities
 
-Line 231: This line gives an error. I think this may be extra code from copy/pasting because it doesn't seem to fit with the data or to be needed in the subsequent steps. 
-
 For each source, we modeled non-linearly with all other sources linear to assess for nonlinearity. We show below sources where there was evidence of nonlinearity.
 
 Source 2 nonlinear - Figure S9
@@ -211,28 +210,26 @@ QAIC(update(nonlinear_2, family = hacked.quasipoisson), chat = 1.3221)
 # 6825.012
 
 # Use predict to create estimates and the corresponding confidence intervals.
-pred <- predict(nonlinear_2, newdata = MI_sources, se.fit = TRUE, type = "terms")
+pred_s2 <- predict(nonlinear_2, newdata = MI_sources, se.fit = TRUE, type = "terms")
 
-data_fit <- as.data.frame(pred$fit) %>%
+data_fit_s2 <- as.data.frame(pred_s2$fit) %>%
   clean_names() %>%
   select(s_source_2) %>%
   rename(beta = s_source_2)
 
-data_se <- as.data.frame(pred$se) %>%
+data_se_s2 <- as.data.frame(pred_s2$se) %>%
   clean_names() %>%
   select(s_source_2) %>%
   rename(se = s_source_2)
 
-data_full <- cbind(data_fit, data_se, MI_sources) %>%
+data_full_s2 <- cbind(data_fit_s2, data_se_s2, MI_sources) %>%
   arrange(source_2) %>%
   mutate(lci = exp(beta - 1.96 * se),
          uci = exp(beta + 1.96 * se),
-         rate_ratio = exp(beta)) %>%
-  mutate(model = name,
-         disease = disease)
+         rate_ratio = exp(beta))
 
 # Plot - Figure S9
-data_full %>%
+data_full_s2 %>%
   ggplot(aes(x = source_2)) +
   theme_classic(base_line_size = 0.6, base_size = 20) +
   geom_path(aes(y = rate_ratio), size = 1.2) +
@@ -278,26 +275,26 @@ QAIC(update(nonlinear_5, family = hacked.quasipoisson), chat = 1.3234)
 # 6819.38
 
 # Use predict to create estimates and the corresponding confidence intervals.
-pred <- predict(nonlinear_5, newdata = MI_sources, se.fit = TRUE, type = "terms")
+pred_s5 <- predict(nonlinear_5, newdata = MI_sources, se.fit = TRUE, type = "terms")
 
-data_fit <- as.data.frame(pred$fit) %>%
+data_fit_s5 <- as.data.frame(pred_s5$fit) %>%
   clean_names() %>%
   select(s_source_5) %>%
   rename(beta = s_source_5)
 
-data_se <- as.data.frame(pred$se) %>%
+data_se_s5 <- as.data.frame(pred_s5$se) %>%
   clean_names() %>%
   select(s_source_5) %>%
   rename(se = s_source_5)
 
-data_full <- cbind(data_fit, data_se, MI_sources) %>%
+data_full_s5 <- cbind(data_fit_s5, data_se_s5, MI_sources) %>%
   arrange(source_5) %>%
   mutate(lci = exp(beta - 1.96 * se),
          uci = exp(beta + 1.96 * se),
          rate_ratio = exp(beta))
 
 # Plot - Figure S8
-data_full %>%
+data_full_s5 %>%
   ggplot(aes(x = source_5)) +
   theme_classic(base_line_size = 0.6, base_size = 20) +
   geom_path(aes(y = rate_ratio), size = 1.2) +
@@ -338,9 +335,6 @@ MI_sources_outliers <- MI_sources %>%
 
 Run model with outliers removed - Figure S10
 
-365: Note that you are calculating the IQR of the data that includes outlier rather than MI_sources_outlier
-368-373: if you are using the IQR from the whole data then this code is redundant because you already estimated the IQR previously and have the IQR object in the environment
-
 ```{r}
 linear_out <- gam(MI_events ~                
                 source_1 +  
@@ -365,7 +359,7 @@ summary(linear_out)
 QAIC(update(linear_out, family = hacked.quasipoisson), chat = 1.3586)
 
 
-IQR <- MI_sources %>%
+IQR_out <- MI_sources_outliers %>%
   pivot_longer(source_1:source_7,
                names_to = "term",
                values_to = "score") %>% 
@@ -373,7 +367,7 @@ IQR <- MI_sources %>%
   summarize(iqr = IQR(score, na.rm = TRUE))
   
 results_iqr_out <- broom::tidy(linear_out, parametric = TRUE) %>% 
-  inner_join(IQR) %>% 
+  inner_join(IQR_out) %>% 
   mutate(rr = round(exp(iqr*estimate), 6),
          rr_lci = round(exp(iqr*(estimate - 1.96*std.error)), 6),
          rr_uci = round(exp(iqr*(estimate + 1.96*std.error)), 6),
