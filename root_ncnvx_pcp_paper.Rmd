@@ -270,18 +270,21 @@ grid_search %>%
 
 #grid_search %>% arrange(rel_err) %>% write_csv( "./rachel_experiments/root_ncnvx_grid_search_l0.00008_m0.005.csv")
 
+# after viewing the results, we went back to step 2, adjusted the range of values
+# we wanted to look at based on the results of the first run, and ran steps 2-5
+# again. We repeated these steps with new gridsearches until we found the optimal values
+# based on relative error, which were lambda = 0.00008, mu = 0.005, and rank = 7.
+
 ```
 
 ## 5. Run PCP using selected values for lambda, mu, and r
 
-277: It is a bit unclear hoow did we end up with these values for the parameters
-278: how did you determine the tol value? 
-279-280: i think it would be really helpful to add comments on what are we doing in these lines of code
-
 ```{r}
-# this takes a few seconds:
+# Run PCP using hyperparameters found using cross validation (this takes a few seconds):
 pcp <- root_pcp_noncvx_nonnegL_na(nyc$M.scaled, lambda = 0.00008, mu = 0.005, 7, verbose = TRUE)
 
+# store low rank matrix (L1) and sparse matrix (S1) to view.
+# we used tol = 1e-04 so that any matrix entry above 1e-04 would be considered non-zero
 L1 <- Matrix::rankMatrix(pcp$L, tol = 1e-04)
 S1 <- sparsity(pcp$S, tol = 1e-04)
 
@@ -290,8 +293,6 @@ S1 <- sparsity(pcp$S, tol = 1e-04)
 ## 6. Run NMF on low rank matrix
 
 Helpful sources for NMF: https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-11-367
-
-287-330: the comments through out this code chunk are so helpful :) 
 
 ```{r}
 
@@ -432,6 +433,13 @@ dates <- seq(as.Date('2007-01-03'), as.Date('2015-12-31'), by = 3) %>%
 
 # bind sparse matrix to new date tibble
 all_dates <- left_join(dates, sparse_df, by = "date")
+
+# we lose 17 dates by joining the data in this way.
+# when we look at those dates, we can see that none of the scores is greater than 1
+# and therefore would not show up in the heatmap as a sparse event.
+# since this version of the dataset is only for visualization purposes, 
+# we do not need these dates to be included.
+anti_join(sparse_df, all_dates) %>% view()
 
 # pivot longer
 sparse <- all_dates %>% 
