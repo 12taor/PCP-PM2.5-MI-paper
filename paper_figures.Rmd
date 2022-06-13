@@ -43,9 +43,6 @@ scale_fill_discrete = scale_fill_viridis_d
 ```
 
 ## 1. Prep data
-
-line 86: what year is this population from and why every year gets the same value?
-
 ```{r include=FALSE}
 # load pcp/nmf scores
 pcp_nmf_scores <- read_csv("./data/pcp_nmf_scores_offset.csv")
@@ -83,8 +80,7 @@ weather_to_2015 <- weather_to_2015 %>%
 MI_sources <- MI %>% 
   left_join(weather_to_2015, by = "date") %>% 
   left_join(pcp_nmf_scores, by = "date") %>% 
-  mutate(population = 8175133,
-         DayofWeek = as.character(wday(date, label = TRUE))
+  mutate(DayofWeek = as.character(wday(date, label = TRUE))
          ) %>% 
   rename(
     source_1 = V1,
@@ -114,18 +110,23 @@ summary(MI_sources)
 ## 2. Table 1: summary statistics
 
 119-184: I think it would be really helpful to anotate so that is easier for people to follow up
-
-127: why did you multiply all components by 1000
 ```{r}
-
+# read in raw data for constituents of PM2.5
 constituents <- read_csv("./data/nyc_raw.csv")
 
+# multiply by 1000 to convert units to nanograms per cubic meter
+# this will make it easier to read Table 1 for low concentration constituents
 ng <- function(x, na.rm = TRUE) (x*1000)
 
+# join constituents t MI_sources table
 summary <- left_join(MI_sources, constituents, by = "date") %>% 
   select(MI_events, rh, temp, pm25:zinc) %>% 
   mutate_at(5:30, ng, na.rm = TRUE)
 
+# create table 1:
+# take summary statistics (min, 25th%ile, median, 50th%ile, maximum, mean, and MD)
+# for total PM2.5, each constituent of PM2.5, temperature, relative humidity,
+# and MI count
 table_1 <- summary %>% 
   pivot_longer(MI_events:zinc,
                names_to = "category",
@@ -195,10 +196,9 @@ Seasonal trends:
 Table S2
 Figures S2, S6
 
-238: Just curious, is the 4 df per year for the seasons?
 238: I think the figure legend in the supplements should include that this is a smooth line fit with 36 df. 
 ```{r include=FALSE}
-
+# pivot MI sources table longer
 MI_sources_long <- MI_sources %>% 
   pivot_longer(source_1:source_7,
                names_to = "source",
@@ -222,6 +222,7 @@ yr_num <- length(unique(year(MI_sources$date)))
 # plot  - Figure S6
 seasonal_trends <- ggplot(MI_sources_long, aes(date, score)) +
   geom_smooth(method = lm, formula = y ~ ns(x, df= 4*yr_num), color = "black") +
+  # df = 4*yr_num is for seasons
   facet_wrap(~source, scales = "free", ncol = 1) + 
   xlab("") +
   ylab("Factor Score") +
