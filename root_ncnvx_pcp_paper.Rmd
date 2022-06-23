@@ -96,10 +96,6 @@ nyc_raw <- cbind(nyc$M.dates, nyc$M) %>%
 
 Correlation between PM2.5 components
 
-Yanelli:
-
-Line 136: maybe changed to label_alpha = FALSE because the labels are difficult to read when they are transparent 
-
 ```{r}
 # correlation matrix
 nyc$M %>%
@@ -139,11 +135,6 @@ nyc$M %>%
 
 
 ## 4. Cross validation to select hyperparameters r, lambda, and mu
-
-
-line 204-207: Should we add to the manuscript a very general summary of the cross validations process? I also don't think we mention in the manuscript the metrics we are using to identify the "optimal values" (aka relative error of the Frobenius norm, sparsity, etc.).
-158: Should we mention in the manuscript that we use scaled data for the tuning?
-266: I'm curious about how did you decide on the final values of the parameters. I know this is a bit of a subjective process and just so I know how to approach this in a future analysis
 
 ```{hyperparameter selection r}
 #----------------------------#
@@ -292,7 +283,7 @@ S1 <- sparsity(pcp$S, tol = 1e-04)
 
 ## 6. Run NMF on low rank matrix
 
-Helpful sources for NMF: https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-11-367
+Helpful resource for NMF: https://bmcbioinformatics.biomedcentral.com/articles/10.1186/1471-2105-11-367
 
 ```{r}
 
@@ -423,7 +414,6 @@ sparse_df <- pcp$S %>%
 
 ## 9. Figure S11: sparse matrix heatmap
 
-428: Here we are getting rid off of a couple of observations (from 1108 to 1095). Are those not important? should we mention this in the manuscript figure legend? 
 ```{r}
 
 # create date tibble (this makes the heatmap easier to read)
@@ -434,7 +424,7 @@ dates <- seq(as.Date('2007-01-03'), as.Date('2015-12-31'), by = 3) %>%
 # bind sparse matrix to new date tibble
 all_dates <- left_join(dates, sparse_df, by = "date")
 
-# we lose 17 dates by joining the data in this way.
+# we lose 17 dates (out of 1108) by joining the data in this way.
 # when we look at those dates, we can see that none of the scores is greater than 1
 # and therefore would not show up in the heatmap as a sparse event.
 # since this version of the dataset is only for visualization purposes, 

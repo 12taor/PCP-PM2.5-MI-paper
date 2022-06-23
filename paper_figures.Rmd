@@ -109,7 +109,6 @@ summary(MI_sources)
 
 ## 2. Table 1: summary statistics
 
-119-184: I think it would be really helpful to anotate so that is easier for people to follow up
 ```{r}
 # read in raw data for constituents of PM2.5
 constituents <- read_csv("./data/nyc_raw.csv")
@@ -195,8 +194,6 @@ Table S1 is in main_effects_paper
 Seasonal trends:
 Table S2
 Figures S2, S6
-
-238: I think the figure legend in the supplements should include that this is a smooth line fit with 36 df. 
 ```{r include=FALSE}
 # pivot MI sources table longer
 MI_sources_long <- MI_sources %>% 
@@ -374,10 +371,7 @@ Figure S2 is above
 Figure S3 is in root_ncnvx_pcp_paper
 
 Figure S4: Pie chart
-
-380-452: This is nothing to do with the code, but not fully understand why are we using the norm L1 (sum of absolute values in the vector), to estimate variance
 ```{r}
-
 # take the matrix norm of each source
 pcp_nmf_source_1 <- pcp_nmf_scores %>% 
   select(V1) %>% 

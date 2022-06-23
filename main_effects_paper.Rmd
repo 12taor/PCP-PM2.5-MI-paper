@@ -247,9 +247,6 @@ data_full_s2 %>%
 
 ## 5. Source 5 nonlinear - Figure S8
 
-Line 280-295: Maybe change the object names so the objects from the code chunk above are not overwriting or cause errors by getting mix-up with the above objects
-Line 189-312: Was there a reason not to have a model including both of the nonlinear sources with a spline?
-
 ```{r}
 # run model
 nonlinear_5 <- gam(MI_events ~    
