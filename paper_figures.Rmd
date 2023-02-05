@@ -45,7 +45,7 @@ scale_fill_discrete = scale_fill_viridis_d
 ## 1. Prep data
 ```{r include=FALSE}
 # load pcp/nmf scores
-pcp_nmf_scores <- read_csv("./data/pcp_nmf_scores_offset.csv")
+pcp_nmf_scores <- read_csv("./data/nmf_pcp_sparse_conc_scores.csv")
 
 # load MI data (this is not actually in the repo)
 MI <- read_fst("./data/z_NYC_daily_mi.fst") %>% 
@@ -372,78 +372,33 @@ Figure S3 is in root_ncnvx_pcp_paper
 
 Figure S4: Pie chart
 ```{r}
-# take the matrix norm of each source
-pcp_nmf_source_1 <- pcp_nmf_scores %>% 
-  select(V1) %>% 
-  as.matrix() %>% 
- norm()
-
-pcp_nmf_source_2 <- pcp_nmf_scores %>% 
-  select(V2) %>% 
-  as.matrix() %>% 
-  norm()
-
-pcp_nmf_source_3 <- pcp_nmf_scores %>% 
-  select(V3) %>% 
-  as.matrix() %>% 
-  norm()
-
-pcp_nmf_source_4 <- pcp_nmf_scores %>% 
-  select(V4) %>% 
-  as.matrix() %>% 
-  norm()
-
-pcp_nmf_source_5 <- pcp_nmf_scores %>% 
-  select(V5) %>% 
-  as.matrix() %>% 
-  norm()
-
-pcp_nmf_source_6 <- pcp_nmf_scores %>% 
-  select(V6) %>% 
-  as.matrix() %>% 
-  norm()
-
-pcp_nmf_source_7 <- pcp_nmf_scores %>% 
-  select(V7) %>% 
-  as.matrix() %>% 
-  norm()
-
-# add norms together to get total
-tot = pcp_nmf_source_1 + pcp_nmf_source_2 + pcp_nmf_source_3 + pcp_nmf_source_4 + pcp_nmf_source_5 + pcp_nmf_source_6 + pcp_nmf_source_7
-
-# calculate percentages
-vals <- c((pcp_nmf_source_3/tot)*100, (pcp_nmf_source_4/tot)*100, (pcp_nmf_source_1/tot)*100, (pcp_nmf_source_7/tot)*100, (pcp_nmf_source_2/tot)*100, (pcp_nmf_source_5/tot)*100, (pcp_nmf_source_6/tot)*100)
-
-#create vector of source names
-val_names <- c("Traffic", "Regional", "Crustal", "Salt", "Cadmium", "Chromium", "Barium")
-
-# label percentages vector with source names
-names(vals) <- val_names
-
-# make into tibble
-values <- cbind(vals, val_names) %>% 
-  as_tibble() %>% 
-  mutate(vals = as.double(vals),
-         vals = round(vals, digits = 0),
-         val_names = fct_reorder(val_names, vals)
-         )
+# get average daily percentage of each source
+avg_perc <- pcp_nmf_scores %>% 
+  mutate(total = source_1 + 
+                 source_2 + 
+                 source_3 + 
+                 source_4 + 
+                 source_5 + 
+                 source_6 +
+                 source_7,
+         pct_1 = source_1/total,
+         pct_2 = source_2/total,
+         pct_3 = source_3/total,
+         pct_4 = source_4/total,
+         pct_5 = source_5/total,
+         pct_6 = source_6/total,
+         pct_7 = source_7/total) %>% 
+  summarize('Crustal (27.7%)' = mean(pct_1) * 100,
+            'Salt (3.8%)' = mean(pct_2) * 100,
+            'Traffic (20.3%)' = mean(pct_3) * 100,
+            'Regional (37.3%)' = mean(pct_4) * 100,
+            'Cadmium (2.4%)' = mean(pct_5) * 100,
+            'Chromium (2.2%)' = mean(pct_6) * 100,
+            'Barium (6.3%)' = mean(pct_7) * 100) %>% 
+  as_vector()
 
 # pie chart - Figure S4
-values %>% 
-  as_tibble() %>% 
-  mutate(vals = as.double(vals)) %>% 
-  ggplot(aes(x = "", y = vals, fill = val_names)) +
-    geom_bar(stat = "identity", width = 1) +
-    coord_polar("y", start = 0) +
-    theme_void() +
-    theme(
-      legend.title = element_blank(),
-      legend.key.size = unit(1, 'cm'),
-      legend.text = element_text(size = 14)
-      ) +
-    geom_text(aes(label = vals),
-              position = position_stack(vjust = 0.5),
-              size = 6)
+pie(avg_perc, col = rainbow(7))
 
 ```
 
