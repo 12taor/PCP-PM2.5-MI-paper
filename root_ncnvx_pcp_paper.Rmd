@@ -19,7 +19,7 @@ install.packages("insert your path here", repos = NULL, type = "source")
 
 # load libraries
 library(pcpr) 
-library(PCPhelpers) 
+library(PCPhelpers)
 library(Matrix)
 library(tidyverse)
 library(NMF) # this biobase package which needs special downloading.See https://rdrr.io/bioc/Biobase/
@@ -330,7 +330,73 @@ nmf_scores <- basis(pcp_nmf) %>%
 
 ```
 
-## 7. Figure 1: loadings figure
+## 7. Compute estimated concentrations
+
+```{r}
+# get pcp-nmf scores
+nmf_scores <- read_csv("./data/pcp_nmf_scores_offset.csv")
+# get raw total PM2.5 concentration
+pm25 <- nyc_raw %>% select(date, pm25)
+
+# calculate the sum of sparse scores for each day
+sparse_collapsed <- pcp$S %>% 
+  rowSums() %>% 
+  as_tibble() %>% 
+  rename(Vsparse = value) %>% 
+  cbind(nyc_raw$date) %>% 
+  rename(date = "nyc_raw$date") %>% 
+  relocate(date) %>% 
+  as_tibble() #%>% 
+
+# join sparse to nmf scores
+nmf_sparse_scores <- left_join(nmf_scores, sparse_collapsed)
+
+# join nmf + sparse to PM2.5 concentration
+conc_data <- left_join(nmf_sparse_scores, pm25)
+
+# regress PM2.5 on factors + sparse
+regress_sparse_pm2.5 <- lm(pm25 ~                
+                V1 +         
+                V2 +               
+                V3 +                
+                V4 +                 
+                V5 +                 
+                V6 +   
+                V7 +
+                Vsparse,
+                data = conc_data)
+
+# store regression coefficients
+betas <- regress_sparse_pm2.5$coefficients %>% 
+  as_tibble_row() %>% 
+  select(-'(Intercept)', -Vsparse) %>% 
+  pivot_longer(V1:V7,
+               names_to = "factor",
+               values_to = "coeff") 
+  
+# convert to long format
+long_nmf_scores <- nmf_scores %>% 
+  pivot_longer(V1:V7,
+               names_to = "factor",
+               values_to = "nmf_score")
+
+# multiply nmf scores by regression coefficients to get estimated concentrations
+nmf_pcp_conc_scores <- left_join(long_nmf_scores, betas, by = "factor") %>% 
+  mutate(conc_score = nmf_score * coeff,
+         factor = str_replace(factor, "V", "")) %>% 
+  select(date, factor, conc_score) %>% 
+  pivot_wider(names_from = "factor",
+              values_from = "conc_score",
+              names_prefix = "source_") %>% 
+  left_join(pm25) %>% 
+  rename(concentration = pm25)
+
+# write_csv(nmf_pcp_conc_scores, "./rachel_experiments/paper/nmf_pcp_sparse_conc_scores.csv")
+
+```
+
+
+## 8. Figure 1: loadings figure
 
 ```{r}
 
@@ -398,7 +464,7 @@ pcp_nmf_loadings %>%
 ```
 
 
-## 8. Create Sparse Matrix
+## 9. Create Sparse Matrix
 ```{r}
 # label each sparse value with its date using nyc dataseet
 sparse_df <- pcp$S %>% 
@@ -412,7 +478,7 @@ sparse_df <- pcp$S %>%
 ```
 
 
-## 9. Figure S11: sparse matrix heatmap
+## 10. Figure S11: sparse matrix heatmap
 
 ```{r}
 
