@@ -41,8 +41,8 @@ In this script, we apply non-convex square-root principal component pursuit (PCP
 3. Create correlation matrix visualization (Figure S3).
 4. Use cross-validation to select hyperparameters for PCP (this step takes some time to run, and will not affect the rest of the output if not run)
 5. Run PCP using selected hyperparameters.
-6. Select the NMF algorithm with the lowest residual error.
-7. Run NMF on low-rank matrix from PCP.
+6. Select the NMF algorithm with the lowest residual error and run NMF on low-rank matrix from PCP.
+7. Compute estimated concentrations
 8. Export PCP-NMF loadings (pcp_nmf_loadings_offset.csv) and PCP-NMF scores (pcp_nmf_scores_offset.csv).
 9. Create PCP-NMF loadings figure (Figure 1).
 10. Create heatmap of sparse matrix from PCP (Figure S11).
@@ -61,4 +61,6 @@ In this script we run the health model. It only uses MI_pcp_nmf.csv (not include
 2. Run main effects model, modeling all sources linearly.
 3. View model reesults (Table S1 and Figure 2).
 4. Model source 2 non-linearly with all other sources linear, and do the same for source 5. Originally this was done for each source, but we only include sources 2 and 5 because these models contained results discussed in the manuscript.
-5. Sensitivity analysis: create dataset with outliers 3SD or higher removed, then run the main effects model using this dataset.
+5. Run quasipoisson model at lags 1 and 2, modeling all sources linearly
+6. Sensitivity analysis: create dataset with outliers 3SD or higher removed, then run the main effects model using this dataset.
+7. Sensitivity analysis: run single-source models
