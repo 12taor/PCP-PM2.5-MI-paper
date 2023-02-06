@@ -478,7 +478,7 @@ sparse_df <- pcp$S %>%
 ```
 
 
-## 10. Figure S11: sparse matrix heatmap
+## 10. Figure S8: sparse matrix heatmap
 
 ```{r}
 

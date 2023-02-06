@@ -127,11 +127,11 @@ QAIC(update(MI_model_tot, family = hacked.quasipoisson), chat = 1.32) # use chat
 
 ```
 
-## 3. View model results - create Table S1 and Figure 2
+## 3. View model results - create Table S3 and Figure 2
 
 ```{r}
 # compute rate ratios, percent change, and relabel sources
-# used for Table S1
+# used for Table S3
 results <- broom::tidy(MI_model, parametric = TRUE) %>% 
   filter(term %in% c("source_1", 
                      "source_2", 
@@ -226,7 +226,7 @@ ForestPlot_full # produces the plot in the plots panel
 
 For each source, we modeled non-linearly with all other sources linear to assess for nonlinearity. We show below sources where there was evidence of nonlinearity.
 
-Source 2 nonlinear - Figure S9
+Source 2 nonlinear - Figure S10
 ```{r}
 # run model
 nonlinear_2 <- gam(MI_events ~       
@@ -270,7 +270,7 @@ data_full_s2 <- cbind(data_fit_s2, data_se_s2, MI_sources) %>%
          uci = exp(beta + 1.96 * se),
          rate_ratio = exp(beta))
 
-# Plot - Figure S9
+# Plot - Figure S10
 data_full_s2 %>%
   ggplot(aes(x = source_2)) +
   theme_classic(base_line_size = 0.6, base_size = 20) +
@@ -287,7 +287,7 @@ data_full_s2 %>%
 
 ```
 
-## 5. Source 5 nonlinear - Figure S8
+## 5. Source 5 nonlinear - Figure S9
 
 ```{r}
 # run model
@@ -332,7 +332,7 @@ data_full_s5 <- cbind(data_fit_s5, data_se_s5, MI_sources) %>%
          uci = exp(beta + 1.96 * se),
          rate_ratio = exp(beta))
 
-# Plot - Figure S8
+# Plot - Figure S9
 data_full_s5 %>%
   ggplot(aes(x = source_5)) +
   theme_classic(base_line_size = 0.6, base_size = 20) +
@@ -962,7 +962,7 @@ ForestPlot_all_lags <- ggplot(data = results_lags_out,
 
 ```
 
-### Single Source Models
+### Single Source Models - Table S5
 
 ## 13. Single Source models, lag 0
 
@@ -1367,8 +1367,6 @@ results_7_lag1 <- broom::tidy(MI_model_7_lag1, parametric = TRUE) %>%
          pct_lci = 100*(rr_lci - 1),
          pct_uci = 100*(rr_uci - 1),
          outliers = "full data")
-
-# barium pct change = 0.433 (-0.503, 1.38)
 
 single_source_lag1 <- rbind(results_1_lag1,
                             results_2_lag1,

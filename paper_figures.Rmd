@@ -189,10 +189,9 @@ table_1 <- summary %>%
 
 Figure 1 is in root_ncnvx_pcp_paper
 Figure 2 is in main_effects_paper
-Table S1 is in main_effects_paper
 
 Seasonal trends:
-Table S2
+Table S1
 Figures S2, S6
 ```{r include=FALSE}
 # pivot MI sources table longer
@@ -252,7 +251,7 @@ season <- MI_sources %>% mutate(season = metR::season(date))
 aov(source_1 ~ season, season) %>% summary()
 
 # anova means - repeat for each source
-# Table S2
+# Table S1
 aov_object <- aov(source_1 ~ season, season)
 
 model.tables(aov_object, type = "means")
@@ -262,7 +261,7 @@ model.tables(aov_object, type = "means")
 ## 4. Weekly patterns
 
 Day of week patterns:
-Table S3, Figure S5
+Table S2, Figure S5
 ```{r include=FALSE}
 
 # mean source scores for each day of the week
@@ -307,7 +306,7 @@ week_day <- MI_sources %>%
                             'weekday', 'weekend'),
          week_end = as_factor(week_end))
 
-# t-test for weekday vs. weekend means - Table S3
+# t-test for weekday vs. weekend means - Table S2
 # repeat for each source
 t.test(week_day$source_1~week_day$week_end)
 
@@ -318,6 +317,7 @@ week_day %>% group_by(week_end) %>% summarize(m = mean(source_1, na.rm = TRUE),
 
 ```
 
+# Tables S3, S4, and S5 are in main_effects_paper
 
 ## 5. Maps
 
@@ -424,5 +424,5 @@ ggcorr(method = c("pairwise.complete.obs", "pearson"), limits = FALSE,
 
 ```
 
-Figures S8, S9, and S10 are in main_effects_paper
-Figure S11 is in root_ncnvx_pcp_paper
+Figures S9, S10, S11, and S12 are in main_effects_paper
+Figure S8 is in root_ncnvx_pcp_paper
