@@ -107,31 +107,46 @@ summary(MI_model)
 QAIC(update(MI_model, family = hacked.quasipoisson), chat = 1.3175) # use chat from summary above
 # 6837.946
 
+# run Total PM2.5 model for comparison:
+MI_model_tot <- gam(MI_events ~                
+                concentration +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_tot)
+
+
+QAIC(update(MI_model_tot, family = hacked.quasipoisson), chat = 1.32) # use chat from summary above
+# 6808.343
 
 ```
 
 ## 3. View model results - create Table S1 and Figure 2
 
 ```{r}
-
-# compute IQR to get IQR increase
-IQR <- MI_sources %>%
-  pivot_longer(source_1:source_7,
-               names_to = "term",
-               values_to = "score") %>% 
-  group_by(term) %>% 
-  summarize(iqr = IQR(score, na.rm = TRUE))
-  
 # compute rate ratios, percent change, and relabel sources
 # used for Table S1
-results_iqr <- broom::tidy(MI_model, parametric = TRUE) %>% 
-  inner_join(IQR) %>% 
-  mutate(rr = round(exp(iqr*estimate), 6),
-         rr_lci = round(exp(iqr*(estimate - 1.96*std.error)), 6),
-         rr_uci = round(exp(iqr*(estimate + 1.96*std.error)), 6),
-         pct_change = 100*(rr - 1),
-         pct_lci = 100*(rr_lci - 1),
-         pct_uci = 100*(rr_uci - 1),
+results <- broom::tidy(MI_model, parametric = TRUE) %>% 
+  filter(term %in% c("source_1", 
+                     "source_2", 
+                     "source_3", 
+                     "source_4", 
+                     "source_5", 
+                     "source_6", 
+                     "source_7"
+                     )) %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp(((estimate - 1.96*std.error))), 6),
+         rr_uci = round(exp(((estimate + 1.96*std.error))), 6),
+         pct_change = 100*(exp(estimate) - 1),
+         pct_lci = 100*(exp((estimate - 1.96*std.error)) - 1),
+         pct_uci = 100*(exp((estimate + 1.96*std.error)) - 1),
          outliers = "full data",
           term = plyr::mapvalues(term,
             from = c("source_1", 
@@ -150,10 +165,36 @@ results_iqr <- broom::tidy(MI_model, parametric = TRUE) %>%
                    "Barium"))
           )
 
-#write.csv(results_iqr, "./experimental_results/results_iqr.csv")
+# compute rate ratios and percent change for total PM2.5
+results_tot <- broom::tidy(MI_model_tot, parametric = TRUE) %>% 
+  filter(term == "concentration") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data",
+         term = if_else(term == "concentration", "Total PM", "0"))
+
+# store as lag 0
+results_main <- rbind(results, results_tot) %>% mutate(lag = "0")
+
+# relevel factors
+results_main$term <- factor(results_main$term, levels = c("Barium",
+                                                        "Cadmium",
+                                                        "Chromium",
+                                                        "Crustal Dust",
+                                                        "Regional",
+                                                        "Salt",
+                                                        "Traffic",
+                                                        "Total PM"))
+
+
+# write.csv(results_main, "./experimental_results/results_main.csv")
 
 # Create forest plot - Figure 2
-ForestPlot_full <- ggplot(data = results_iqr, 
+ForestPlot_full <- ggplot(data = results_main, 
   aes(
       x = term,  
       y = pct_change,      
@@ -165,6 +206,7 @@ ForestPlot_full <- ggplot(data = results_iqr,
   xlab("") +    
   ylab(expression("Percent change in MI admission rate (95% CI)")) +
   theme_classic() +
+  # scale_y_continuous(breaks = seq(-0.5, 2, by = 0.5)) +
   theme(
     axis.text.x = element_text(
       face = "bold", color = "black", size = 16, angle = 315),
@@ -307,10 +349,247 @@ data_full_s5 %>%
 
 ```
 
-## 6. Sensitivity analysis: outliers
+## 6. Run quasipoisson model at lags 1 and 2
 
-Sensitivity analysis with removed outliers:
-create dataset with outliers 3SD or higher removed 
+```{r}
+# Lag 1
+MI_model_lag1 <- gam(MI_lead1 ~                
+                source_1 +               
+                source_2 +               
+                source_3 +                
+                source_4 +                 
+                source_5 +                 
+                source_6 +   
+                source_7 +
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_lag1)
+
+QAIC(update(MI_model_lag1, family = hacked.quasipoisson), chat = 1.3871) # use chat from summary above
+# 6572.349
+
+# Total PM2.5 lag 1
+MI_model_tot_lag1 <- gam(MI_lead1 ~                
+                concentration +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_tot_lag1)
+
+
+QAIC(update(MI_model_tot_lag1, family = hacked.quasipoisson), chat = 1.3797) # use chat from summary above
+# 6578.062
+
+# Lag 2
+MI_model_lag2 <- gam(MI_lead2 ~                
+                source_1 +               
+                source_2 +               
+                source_3 +                
+                source_4 +                 
+                source_5 +                 
+                source_6 +   
+                source_7 +
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_lag2)
+
+
+QAIC(update(MI_model_lag2, family = hacked.quasipoisson), chat = 1.3658) # use chat from summary above
+# 6672.015
+
+# total PM linear lag 2
+MI_model_tot_lag2 <- gam(MI_lead2 ~                
+                concentration +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_tot_lag2)
+
+
+QAIC(update(MI_model_tot_lag2, family = hacked.quasipoisson), chat = 1.3513) # use chat from summary above
+# 6707.364
+
+```
+
+
+## 7. View model results for multiple lags - Table S3 and Figure S11
+
+```{r}
+# compute rate ratios, percent change, and relabel sources, lag 1
+# used for Table S3
+results_lag1 <- broom::tidy(MI_model_lag1, parametric = TRUE) %>% 
+  filter(term %in% c("source_1", 
+                     "source_2", 
+                     "source_3", 
+                     "source_4", 
+                     "source_5", 
+                     "source_6", 
+                     "source_7"
+                     )) %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data",
+          term = plyr::mapvalues(term,
+            from = c("source_1", 
+                     "source_2", 
+                     "source_3", 
+                     "source_4", 
+                     "source_5", 
+                     "source_6", 
+                     "source_7"),
+            to = c("Crustal Dust", 
+                   "Salt", 
+                   "Traffic", 
+                   "Regional", 
+                   "Cadmium", 
+                   "Chromium", 
+                   "Barium"))
+          )
+
+results_tot_lag1 <- broom::tidy(MI_model_tot_lag1, parametric = TRUE) %>% 
+  filter(term == "concentration") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data",
+         term = if_else(term == "concentration", "Total PM", "0"))
+
+results_lag1 <- rbind(results_lag1, results_tot_lag1) %>% mutate(lag = "1")
+
+# compute rate ratios, percent change, and relabel sources, lag 2
+# used for Table S3
+results_lag2 <- broom::tidy(MI_model_lag2, parametric = TRUE) %>% 
+  filter(term %in% c("source_1", 
+                     "source_2", 
+                     "source_3", 
+                     "source_4", 
+                     "source_5", 
+                     "source_6", 
+                     "source_7"
+                     )) %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data",
+          term = plyr::mapvalues(term,
+            from = c("source_1", 
+                     "source_2", 
+                     "source_3", 
+                     "source_4", 
+                     "source_5", 
+                     "source_6", 
+                     "source_7"),
+            to = c("Crustal Dust", 
+                   "Salt", 
+                   "Traffic", 
+                   "Regional", 
+                   "Cadmium", 
+                   "Chromium", 
+                   "Barium"))
+          )
+
+# total PM2.5 lag 2
+results_tot_lag2 <- broom::tidy(MI_model_tot_lag2, parametric = TRUE) %>% 
+  filter(term == "concentration") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data",
+         term = if_else(term == "concentration", "Total PM", "0"))
+
+results_lag2 <- rbind(results_lag2, results_tot_lag2) %>% mutate(lag = "2")
+
+# all lags table - Table S3
+results_lags <- rbind(results_main, results_lag1, results_lag2) %>% 
+  mutate(
+         lag = as_factor(lag),
+         lag = fct_relevel(lag, "0", "1", "2"),
+         lag = recode(lag, "0" = "Lag 0", "1" = "Lag 1", "2" = "Lag 2"),
+         term = as_factor(term),
+         term = fct_relevel(term, "Barium",
+                                   "Cadmium",
+                                   "Chromium",
+                                   "Crustal Dust",
+                                   "Regional",
+                                   "Salt",
+                                   "Traffic",
+                                   "Total PM")
+         )
+
+write_csv(results_lags, "./experimental_results/results_main_all_lags.csv")
+
+# all lags forest plot - Figure S11
+ForestPlot_all_lags <- ggplot(data = results_lags, 
+  aes(x = term,  
+      y = pct_change,
+      shape = lag,
+      col = lag,
+      ymin = pct_lci,     
+      ymax = pct_uci)) +  
+      geom_pointrange(size = 0.75, position = position_dodge(width = 1)) +   
+      geom_errorbar(position = position_dodge(width = 1)) +      
+    scale_shape_manual(values = c(19, 12, 4)) +
+    scale_color_manual(values = c("black", "gray40", "gray70")) +
+    theme_classic() +
+    geom_hline(aes(yintercept = 0), lty = 2) +
+    xlab("") +    
+    ylab(expression("Percent change in MI admission rate (95% CI)")) +
+    theme(
+    axis.text.x = element_text(
+      face = "bold", color = "black", size = 16, angle = 315),
+    axis.title = element_text(face = "bold", size = 16),
+    legend.title = element_blank(),
+    legend.text = element_text(face = "bold", size = 16),
+    legend.position = "right",
+    axis.text.y = element_text(
+      face = "bold", color = "black", size = 18)
+    )
+
+```
+
+
+### Sensitivity analysis: outliers
+
+## 8. Create dataset with outliers 3SD or higher removed 
 ```{r}
 replaceOutlier <- function(x, cutoff = 3) {
   x[abs(x) > cutoff*sd(x, na.rm = T)] <- NA_real_
@@ -330,8 +609,7 @@ MI_sources_outliers <- MI_sources %>%
 ```
 
 
-Run model with outliers removed - Figure S10
-
+## 9. Run model with outliers removed - Lag 0
 ```{r}
 linear_out <- gam(MI_events ~                
                 source_1 +  
@@ -355,19 +633,18 @@ summary(linear_out)
 
 QAIC(update(linear_out, family = hacked.quasipoisson), chat = 1.3586)
 
-
-IQR_out <- MI_sources_outliers %>%
-  pivot_longer(source_1:source_7,
-               names_to = "term",
-               values_to = "score") %>% 
-  group_by(term) %>% 
-  summarize(iqr = IQR(score, na.rm = TRUE))
-  
-results_iqr_out <- broom::tidy(linear_out, parametric = TRUE) %>% 
-  inner_join(IQR_out) %>% 
-  mutate(rr = round(exp(iqr*estimate), 6),
-         rr_lci = round(exp(iqr*(estimate - 1.96*std.error)), 6),
-         rr_uci = round(exp(iqr*(estimate + 1.96*std.error)), 6),
+results_out <- broom::tidy(linear_out, parametric = TRUE) %>% 
+  filter(term %in% c("source_1",
+                     "source_2",
+                     "source_3",
+                     "source_4",
+                     "source_5",
+                     "source_6",
+                     "source_7"
+                     )) %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
          pct_change = 100*(rr - 1),
          pct_lci = 100*(rr_lci - 1),
          pct_uci = 100*(rr_uci - 1),
@@ -380,7 +657,7 @@ results_iqr_out <- broom::tidy(linear_out, parametric = TRUE) %>%
                     "source_5", 
                     "source_6", 
                     "source_7"),
-           to = c("Crustal", 
+           to = c("Crustal Dust", 
                   "Salt", 
                   "Traffic", 
                   "Regional", 
@@ -388,14 +665,286 @@ results_iqr_out <- broom::tidy(linear_out, parametric = TRUE) %>%
                   "Chromium", 
                   "Barium")))
 
-# create forest plot - Figure S10
-ForestPlot_outliers <- ggplot(data = results_iqr_out, 
+# source 1 linear
+MI_model_tot_out <- gam(MI_events ~                
+                concentration +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_tot_pm_outliers)
+
+summary(MI_model_tot_out)
+
+
+QAIC(update(MI_model_tot, family = hacked.quasipoisson), chat = 1.304) # use chat from summary above
+# 6885.322
+
+# total PM2.5 no outliers, lag 0
+results_tot_out <- broom::tidy(MI_model_tot_out, parametric = TRUE) %>% 
+  filter(term == "concentration") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "outliers excluded",
+         term = if_else(term == "concentration", "Total PM", "0"))
+
+results_lag0_out <- rbind(results_out, results_tot_out) %>% mutate(lag = "0") %>% 
+  mutate(term = if_else(term == "concentration", "Total PM", term),
+         term = as_factor(term),
+         term = fct_relevel(term, "Barium",
+                                   "Cadmium",
+                                   "Chromium",
+                                   "Crustal Dust",
+                                   "Regional",
+                                   "Salt",
+                                   "Traffic",
+                                   "Total PM")
+         )
+
+```
+
+## 10. Run model with outliers removed - Lag 1
+```{r}
+linear_out_lag1 <- gam(MI_lead1 ~                
+                source_1 +  
+                source_2 +
+                source_3 +
+                source_4 +
+                source_5 +
+                source_6 +
+                source_7 +
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources_outliers,
+                maxit = 10000)
+
+summary(linear_out_lag1)
+
+QAIC(update(linear_out_lag1, family = hacked.quasipoisson), chat = 1.3232)
+# 5245.7
+
+results_out_lag1 <- broom::tidy(linear_out_lag1, parametric = TRUE) %>% 
+  filter(term %in% c("source_1",
+                     "source_2",
+                     "source_3",
+                     "source_4",
+                     "source_5",
+                     "source_6",
+                     "source_7"
+                     )) %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "outliers excluded",
+         term = plyr::mapvalues(term,
+           from = c("source_1", 
+                    "source_2", 
+                    "source_3", 
+                    "source_4", 
+                    "source_5", 
+                    "source_6", 
+                    "source_7"),
+           to = c("Crustal Dust", 
+                  "Salt", 
+                  "Traffic", 
+                  "Regional", 
+                  "Cadmium", 
+                  "Chromium", 
+                  "Barium")))
+
+# PM2.5 no outliers lag 1
+MI_model_tot_out_lag1 <- gam(MI_lead1 ~                
+                concentration +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_tot_pm_outliers)
+
+summary(MI_model_tot_out_lag1)
+
+
+QAIC(update(MI_model_tot_lag1, family = hacked.quasipoisson), chat = 1.3833) # use chat from summary above
+# 6561.261
+
+results_tot_out_lag1 <- broom::tidy(MI_model_tot_out, parametric = TRUE) %>% 
+  filter(term == "concentration") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "outliers excluded",
+         term = if_else(term == "concentration", "Total PM", "0"))
+
+results_lag1_out <- rbind(results_out_lag1, results_tot_out_lag1) %>% mutate(lag = "1") %>% 
+  mutate(term = if_else(term == "concentration", "Total PM", term),
+         term = as_factor(term),
+         term = fct_relevel(term, "Barium",
+                                   "Cadmium",
+                                   "Chromium",
+                                   "Crustal Dust",
+                                   "Regional",
+                                   "Salt",
+                                   "Traffic",
+                                   "Total PM")
+         )
+
+```
+
+## 11. Run model with outliers removed - Lag 2
+```{r}
+linear_out_lag2 <- gam(MI_lead2 ~                
+                source_1 +  
+                source_2 +
+                source_3 +
+                source_4 +
+                source_5 +
+                source_6 +
+                source_7 +
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources_outliers,
+                maxit = 10000)
+
+summary(linear_out_lag2)
+
+QAIC(update(linear_out_lag2, family = hacked.quasipoisson), chat = 1.4641)
+# 4842.948
+
+results_out_lag2 <- broom::tidy(linear_out_lag2, parametric = TRUE) %>% 
+  filter(term %in% c("source_1",
+                     "source_2",
+                     "source_3",
+                     "source_4",
+                     "source_5",
+                     "source_6",
+                     "source_7"
+                     )) %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "outliers excluded",
+         term = plyr::mapvalues(term,
+           from = c("source_1", 
+                    "source_2", 
+                    "source_3", 
+                    "source_4", 
+                    "source_5", 
+                    "source_6", 
+                    "source_7"),
+           to = c("Crustal Dust", 
+                  "Salt", 
+                  "Traffic", 
+                  "Regional", 
+                  "Cadmium", 
+                  "Chromium", 
+                  "Barium")))
+
+# total PM2.5 no outliers lag 2
+MI_model_tot_out_lag2 <- gam(MI_lead2 ~                
+                concentration +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_tot_pm_outliers)
+
+summary(MI_model_tot_out_lag2)
+
+QAIC(update(MI_model_tot_lag2, family = hacked.quasipoisson), chat = 1.3932) # use chat from summary above
+# 6509.311
+
+results_tot_out_lag2 <- broom::tidy(MI_model_tot_out_lag2, parametric = TRUE) %>% 
+  filter(term == "concentration") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "outliers excluded",
+         term = if_else(term == "concentration", "Total PM", "0"))
+
+
+results_lag2_out <- rbind(results_out_lag2, results_tot_out_lag2) %>% mutate(lag = "2") %>% 
+  mutate(term = if_else(term == "concentration", "Total PM", term),
+         term = as_factor(term),
+         term = fct_relevel(term, "Barium",
+                                   "Cadmium",
+                                   "Chromium",
+                                   "Crustal Dust",
+                                   "Regional",
+                                   "Salt",
+                                   "Traffic",
+                                   "Total PM")
+         )
+
+```
+
+## 12. All lags with outliers removed - Table S4, Figure S12
+```{r}
+# Table S4
+results_lags_out <- rbind(results_lag0_out, results_lag1_out, results_lag2_out) %>% 
+  mutate(
+         lag = as_factor(lag),
+         lag = fct_relevel(lag, "0", "1", "2"),
+         lag = recode(lag, "0" = "Lag 0", "1" = "Lag 1", "2" = "Lag 2"),
+         term = as_factor(term),
+         term = fct_relevel(term, "Barium",
+                                   "Cadmium",
+                                   "Chromium",
+                                   "Crustal Dust",
+                                   "Regional",
+                                   "Salt",
+                                   "Traffic",
+                                   "Total PM")
+         )
+
+# write_csv(results_lags_out, "./experimental_results/results_main_all_lags_out.csv")
+
+# Figure S12
+ForestPlot_all_lags <- ggplot(data = results_lags_out, 
   aes(x = term,  
-      y = pct_change,      
+      y = pct_change,
+      shape = lag,
+      col = lag,
       ymin = pct_lci,     
       ymax = pct_uci)) +  
-      geom_pointrange() +   
-      geom_errorbar() +      
+      geom_pointrange(size = 0.75, position = position_dodge(width = 1)) +   
+      geom_errorbar(position = position_dodge(width = 1)) +      
+    scale_shape_manual(values = c(19, 12, 4)) +
+    scale_color_manual(values = c("black", "gray40", "gray70")) +
     theme_classic() +
     geom_hline(aes(yintercept = 0), lty = 2) +
     xlab("") +    
@@ -405,12 +954,639 @@ ForestPlot_outliers <- ggplot(data = results_iqr_out,
       face = "bold", color = "black", size = 16, angle = 315),
     axis.title = element_text(face = "bold", size = 16),
     legend.title = element_blank(),
-    legend.text = element_text(face = "bold", size = 24),
+    legend.text = element_text(face = "bold", size = 16),
     legend.position = "right",
     axis.text.y = element_text(
       face = "bold", color = "black", size = 18)
     )
 
-ForestPlot_outliers # produces the plot in the plots panel
+```
+
+### Single Source Models
+
+## 13. Single Source models, lag 0
+
+```{r}
+# source 1 linear
+MI_model_1 <- gam(MI_events ~                
+                source_1 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_1)
+
+
+QAIC(update(MI_model_1, family = hacked.quasipoisson), chat = 1.3175) # use chat from summary above
+# 6831.703
+
+results_1 <- broom::tidy(MI_model_1, parametric = TRUE) %>% 
+  filter(term == "source_1") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 2 linear
+MI_model_2 <- gam(MI_events ~                
+                source_2 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_2)
+
+
+QAIC(update(MI_model_2, family = hacked.quasipoisson), chat = 1.3231) # use chat from summary above
+# 6808.387
+
+results_2 <- broom::tidy(MI_model_2, parametric = TRUE) %>% 
+  filter(term == "source_2") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 3 linear
+MI_model_3 <- gam(MI_events ~                
+                source_3 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_3)
+
+
+QAIC(update(MI_model_3, family = hacked.quasipoisson), chat = 1.3178) # use chat from summary above
+# 68330.967
+
+results_3 <- broom::tidy(MI_model_3, parametric = TRUE) %>% 
+  filter(term == "source_3") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 4 linear
+MI_model_4 <- gam(MI_events ~                
+                source_4 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_4)
+
+
+QAIC(update(MI_model_4, family = hacked.quasipoisson), chat = 1.3225) # use chat from summary above
+# 6810.992
+
+results_4 <- broom::tidy(MI_model_4, parametric = TRUE) %>% 
+  filter(term == "source_4") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 5 linear
+MI_model_5 <- gam(MI_events ~                
+                source_5 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_5)
+
+
+QAIC(update(MI_model_5, family = hacked.quasipoisson), chat = 1.323) # use chat from summary above
+# 6808.845
+
+results_5 <- broom::tidy(MI_model_5, parametric = TRUE) %>% 
+  filter(term == "source_5") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 6 linear
+MI_model_6 <- gam(MI_events ~                
+                source_6 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_6)
+
+
+QAIC(update(MI_model_6, family = hacked.quasipoisson), chat = 1.3216) # use chat from summary above
+# 6814.74
+
+results_6 <- broom::tidy(MI_model_6, parametric = TRUE) %>% 
+  filter(term == "source_6") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 7 linear
+MI_model_7 <- gam(MI_events ~                
+                source_7 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_7)
+
+
+QAIC(update(MI_model_7, family = hacked.quasipoisson), chat = 1.3227) # use chat from summary above
+# 6809.995
+
+results_7 <- broom::tidy(MI_model_7, parametric = TRUE) %>% 
+  filter(term == "source_7") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+single_source_models <- rbind(results_1, results_2, results_3, results_4, results_5, results_6, results_7)
+
+# write_csv(single_source_models, "./experimental_results/results_single_source.csv")
+
+```
+
+## 14. Single Source models, lag 1
+
+```{r}
+# source 1 linear
+MI_model_1_lag1 <- gam(MI_lead1 ~                
+                source_1 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_1_lag1)
+
+
+QAIC(update(MI_model_1_lag1, family = hacked.quasipoisson), chat = 1.3847) # use chat from summary above
+# 6576.688
+
+results_1_lag1 <- broom::tidy(MI_model_1_lag1, parametric = TRUE) %>% 
+  filter(term == "source_1") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 2 linear
+MI_model_2_lag1 <- gam(MI_lead1 ~                
+                source_2 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_2_lag1)
+
+
+QAIC(update(MI_model_2_lag1, family = hacked.quasipoisson), chat = 1.3864) # use chat from summary above
+# 6569.743
+
+results_2_lag1 <- broom::tidy(MI_model_2_lag1, parametric = TRUE) %>% 
+  filter(term == "source_2") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 3 linear
+MI_model_3_lag1 <- gam(MI_lead1 ~                
+                source_3 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_3_lag1)
+
+
+QAIC(update(MI_model_3_lag1, family = hacked.quasipoisson), chat = 1.3854) # use chat from summary above
+# 6573.709
+
+results_3_lag1 <- broom::tidy(MI_model_3_lag1, parametric = TRUE) %>% 
+  filter(term == "source_3") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 4 linear
+MI_model_4_lag1 <- gam(MI_lead1 ~                
+                source_4 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_4_lag1)
+
+
+QAIC(update(MI_model_4_lag1, family = hacked.quasipoisson), chat = 1.3835) # use chat from summary above
+# 6580.708
+
+results_4_lag1 <- broom::tidy(MI_model_4_lag1, parametric = TRUE) %>% 
+  filter(term == "source_4") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 5 linear
+MI_model_5_lag1 <- gam(MI_lead1 ~                
+                source_5 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_5_lag1)
+
+
+QAIC(update(MI_model_5_lag1, family = hacked.quasipoisson), chat = 1.3856) # use chat from summary above
+# 6572.472
+
+results_5_lag1 <- broom::tidy(MI_model_5_lag1, parametric = TRUE) %>% 
+  filter(term == "source_5") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 6 linear
+MI_model_6_lag1 <- gam(MI_lead1 ~                
+                source_6 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_6_lag1)
+
+
+QAIC(update(MI_model_6_lag1, family = hacked.quasipoisson), chat = 1.3854) # use chat from summary above
+# 6573.669
+
+results_6_lag1 <- broom::tidy(MI_model_6_lag1, parametric = TRUE) %>% 
+  filter(term == "source_6") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 7 linear
+MI_model_7_lag1 <- gam(MI_lead1 ~                
+                source_7 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_7_lag1)
+
+
+QAIC(update(MI_model_7_lag1, family = hacked.quasipoisson), chat = 1.3853) # use chat from summary above
+# 6573.937
+
+results_7_lag1 <- broom::tidy(MI_model_7_lag1, parametric = TRUE) %>% 
+  filter(term == "source_7") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# barium pct change = 0.433 (-0.503, 1.38)
+
+single_source_lag1 <- rbind(results_1_lag1,
+                            results_2_lag1,
+                            results_3_lag1,
+                            results_4_lag1,
+                            results_5_lag1,
+                            results_6_lag1,
+                            results_7_lag1)
+
+```
+
+## 15. Single Source models, lag 2
+
+```{r}
+# source 1 linear
+MI_model_1_lag2 <- gam(MI_lead2 ~                
+                source_1 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_1_lag2)
+
+
+QAIC(update(MI_model_1_lag2, family = hacked.quasipoisson), chat = 1.363) # use chat from summary above
+# 6678.804
+
+results_1_lag2 <- broom::tidy(MI_model_1_lag2, parametric = TRUE) %>% 
+  filter(term == "source_1") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 2 linear
+MI_model_2_lag2 <- gam(MI_lead2 ~                
+                source_2 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_2_lag2)
+
+
+QAIC(update(MI_model_2_lag2, family = hacked.quasipoisson), chat = 1.3864) # use chat from summary above
+# 6569.743
+
+results_2_lag2 <- broom::tidy(MI_model_2_lag2, parametric = TRUE) %>% 
+  filter(term == "source_2") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 3 linear
+MI_model_3_lag2 <- gam(MI_lead2 ~                
+                source_3 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_3_lag2)
+
+
+QAIC(update(MI_model_3_lag2, family = hacked.quasipoisson), chat = 1.363) # use chat from summary above
+# 6678.8
+
+results_3_lag2 <- broom::tidy(MI_model_3_lag2, parametric = TRUE) %>% 
+  filter(term == "source_3") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+# source 4 linear
+MI_model_4_lag2 <- gam(MI_lead2 ~                
+                source_4 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_4_lag2)
+
+
+QAIC(update(MI_model_4_lag2, family = hacked.quasipoisson), chat = 1.3609) # use chat from summary above
+# 6687.128
+
+results_4_lag2 <- broom::tidy(MI_model_4_lag2, parametric = TRUE) %>% 
+  filter(term == "source_4") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 5 linear
+MI_model_5_lag2 <- gam(MI_lead2 ~                
+                source_5 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_5_lag2)
+
+
+QAIC(update(MI_model_5_lag2, family = hacked.quasipoisson), chat = 1.3624) # use chat from summary above
+# 6681.238
+
+results_5_lag2 <- broom::tidy(MI_model_5_lag2, parametric = TRUE) %>% 
+  filter(term == "source_5") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 6 linear
+MI_model_6_lag2 <- gam(MI_lead2 ~                
+                source_6 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_6_lag2)
+
+
+QAIC(update(MI_model_6_lag2, family = hacked.quasipoisson), chat = 1.3623) # use chat from summary above
+# 6681.663
+
+results_6_lag2 <- broom::tidy(MI_model_6_lag2, parametric = TRUE) %>% 
+  filter(term == "source_6") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+# source 7 linear
+MI_model_7_lag2 <- gam(MI_lead2 ~                
+                source_7 +               
+                s(temp, k = 5, fx = TRUE, bs = 'cr') +  
+                s(temp_3day, k = 5, fx = TRUE, bs = 'cr') +    
+                s(rh, k = 5, fx = TRUE, bs = 'cr') +           
+                s(rh_3day, k = 4, fx = TRUE, bs = 'cr') +     
+                DayofWeek +                
+                s(date, k = 4*yr_num + 1, fx = TRUE, bs = 'cr'),   
+                family = "quasipoisson",   
+                data = MI_sources)
+
+summary(MI_model_7_lag2)
+
+
+QAIC(update(MI_model_7_lag2, family = hacked.quasipoisson), chat = 1.3624) # use chat from summary above
+# 6679.993
+
+results_7_lag2 <- broom::tidy(MI_model_7_lag2, parametric = TRUE) %>% 
+  filter(term == "source_7") %>% 
+  mutate(rr = round(exp(estimate), 6),
+         rr_lci = round(exp((estimate - 1.96*std.error)), 6),
+         rr_uci = round(exp((estimate + 1.96*std.error)), 6),
+         pct_change = 100*(rr - 1),
+         pct_lci = 100*(rr_lci - 1),
+         pct_uci = 100*(rr_uci - 1),
+         outliers = "full data")
+
+single_source_lag2 <- rbind(results_1_lag2, 
+                            results_2_lag2, 
+                            results_3_lag2, 
+                            results_4_lag2, 
+                            results_5_lag2,
+                            results_6_lag2,
+                            results_7_lag2)
+
+# write_csv(single_source_lag2, "./experimental_results/single_source_lag2.csv")
+
 ```
 
